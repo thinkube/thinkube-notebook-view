@@ -6,7 +6,7 @@ Shows a notebook from Thinkube Notebooks in a Thinkube IDE editor tab, and lets 
 
 - **A notebook in a tab.** The tab frames the notebook's own page on the notebook server, signed in, on the kernel it already has: by default the single-document page (one notebook, its toolbar, its kernel), or the whole of JupyterLab with the `page` setting. Edits and outputs made by Claude Code appear in it as they happen, because it shows the same shared document.
 - **The clipboard works.** VS Code's Simple Browser withholds clipboard permission from what it frames, so copying out of a framed notebook fails. This tab passes the permission on.
-- **One command opens it.** `tk-notebook-open <path>` in the IDE terminal opens the tab; Claude Code runs it after `jupyter_use_notebook`. The command talks to the extension on a loopback port.
+- **One command opens it.** `tk-notebook-open <path>` in the IDE terminal opens the tab in the IDE window you used last; Claude Code runs it after `jupyter_use_notebook`. Each window's extension listens on its own loopback port and records it, with the time the window was last focused, under `~/.local/share/thinkube-notebook-view/hosts/`.
 
 ## Use
 
@@ -27,7 +27,6 @@ The tab's title bar has *Reload* and *Open in the browser*. Tabs come back after
 |---|---|
 | `thinkubeNotebookView.page` | `notebook` (default): the single-document page. `lab`: the whole of JupyterLab. An address given in the other form is rewritten to the chosen page. |
 | `thinkubeNotebookView.baseUrl` | Address a notebook path is appended to. Empty: `https://notebooks.<DOMAIN_NAME>/user/<user>/<page route>/thinkube/notebooks/`, with `DOMAIN_NAME` from the environment or `~/.env`. |
-| `thinkubeNotebookView.port` | Loopback port for `tk-notebook-open` (default 47311). |
 
 ## Requirements
 

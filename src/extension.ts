@@ -9,8 +9,9 @@
  * is given the clipboard permissions the webview holds, which is what VS
  * Code's Simple Browser withholds; copying out of the notebook works.
  *
- * A loopback listener lets a terminal open a tab: `tk-notebook-open <path>`
- * asks it, and Claude Code runs that command after it has opened a notebook.
+ * A loopback listener per IDE window lets a terminal open a tab in the window
+ * used last: `tk-notebook-open <path>` asks it, and Claude Code runs that
+ * command after it has opened a notebook.
  */
 
 import * as fs from 'fs';
@@ -215,11 +216,42 @@ function answer(res: http.ServerResponse, status: number, body: unknown): void {
     res.end(JSON.stringify(body));
 }
 
-function startListener(port: number): http.Server {
+/**
+ * Each IDE window runs its own extension host, so each gets its own listener
+ * on a port of the system's choosing, and writes a record of it under
+ * ~/.local/share/thinkube-notebook-view/hosts: port, pid, and when the window
+ * was last focused. tk-notebook-open reads the records, skips hosts whose
+ * process is gone, and asks the window focused most recently. The record is
+ * removed when the host deactivates.
+ */
+const HOSTS_DIR = path.join(os.homedir(), '.local', 'share', 'thinkube-notebook-view', 'hosts');
+
+function recordPath(): string {
+    return path.join(HOSTS_DIR, `${process.pid}.json`);
+}
+
+function writeRecord(port: number): void {
+    try {
+        fs.mkdirSync(HOSTS_DIR, { recursive: true });
+        fs.writeFileSync(recordPath(), JSON.stringify({ pid: process.pid, port, focused_at: Date.now() }));
+    } catch (e) {
+        output.appendLine(`could not write the host record: ${(e as Error).message}`);
+    }
+}
+
+function removeRecord(): void {
+    try {
+        fs.unlinkSync(recordPath());
+    } catch {
+        // already gone
+    }
+}
+
+function startListener(): http.Server {
     const server = http.createServer(async (req, res) => {
         const url = new URL(req.url || '/', 'http://127.0.0.1');
         if (url.pathname === '/health') {
-            answer(res, 200, { status: 'ok', service: 'thinkube-notebook-view', open: [...panels.keys()] });
+            answer(res, 200, { status: 'ok', service: 'thinkube-notebook-view', pid: process.pid, open: [...panels.keys()] });
             return;
         }
         if (url.pathname !== '/open') {
@@ -242,17 +274,21 @@ function startListener(port: number): http.Server {
         }
         try {
             const opened = openNotebook(target);
-            answer(res, 200, { opened });
+            answer(res, 200, { opened, pid: process.pid });
         } catch (e) {
             answer(res, 500, { error: (e as Error).message });
         }
     });
     server.on('error', (e: NodeJS.ErrnoException) => {
-        const reason = e.code === 'EADDRINUSE' ? `port ${port} is in use` : e.message;
-        output.appendLine(`listener not started: ${reason}`);
-        vscode.window.showWarningMessage(`Thinkube Notebook View: ${reason}; tk-notebook-open will not work until the port is free.`);
+        output.appendLine(`listener not started: ${e.message}`);
+        vscode.window.showWarningMessage(`Thinkube Notebook View: the listener could not start (${e.message}); tk-notebook-open will not reach this window.`);
     });
-    server.listen(port, '127.0.0.1', () => output.appendLine(`listening on 127.0.0.1:${port}`));
+    server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        const port = typeof address === 'object' && address ? address.port : 0;
+        output.appendLine(`listening on 127.0.0.1:${port}`);
+        writeRecord(port);
+    });
     return server;
 }
 
@@ -301,9 +337,16 @@ export function activate(context: vscode.ExtensionContext): void {
 
     context.subscriptions.push(vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, new PanelRestorer()));
 
-    const port = vscode.workspace.getConfiguration('thinkubeNotebookView').get<number>('port', 47311);
-    const server = startListener(port);
-    context.subscriptions.push({ dispose: () => server.close() });
+    const server = startListener();
+    context.subscriptions.push({ dispose: () => { server.close(); removeRecord(); } });
+    context.subscriptions.push(
+        vscode.window.onDidChangeWindowState((state) => {
+            const address = server.address();
+            if (state.focused && typeof address === 'object' && address) {
+                writeRecord(address.port);
+            }
+        }),
+    );
 }
 
 export function deactivate(): void {
