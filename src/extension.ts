@@ -1,0 +1,268 @@
+// Copyright 2026 Alejandro Martínez Corriá and the Thinkube contributors
+// SPDX-License-Identifier: Apache-2.0
+
+/**
+ * Shows a notebook from Thinkube Notebooks in an editor tab.
+ *
+ * The tab is a webview holding one iframe on the notebook's own address, so
+ * JupyterLab renders it, signed in, on the kernel it already has. The iframe
+ * is given the clipboard permissions the webview holds, which is what VS
+ * Code's Simple Browser withholds; copying out of the notebook works.
+ *
+ * A loopback listener lets a terminal open a tab: `tk-notebook-open <path>`
+ * asks it, and Claude Code runs that command after it has opened a notebook.
+ */
+
+import * as fs from 'fs';
+import * as http from 'http';
+import * as os from 'os';
+import * as path from 'path';
+import * as vscode from 'vscode';
+
+const VIEW_TYPE = 'thinkubeNotebook';
+const NOTEBOOKS_FOLDER = 'thinkube/notebooks/';
+
+const panels = new Map<string, vscode.WebviewPanel>();
+let activePanel: vscode.WebviewPanel | undefined;
+let output: vscode.OutputChannel;
+
+// ---------------------------------------------------------------------------
+// Where notebooks live
+// ---------------------------------------------------------------------------
+
+function readIfThere(file: string): string {
+    try {
+        return fs.readFileSync(file, 'utf8');
+    } catch {
+        return '';
+    }
+}
+
+/**
+ * The platform's domain, from the first of: DOMAIN_NAME in the environment or
+ * in ~/.env; code-server's own --proxy-domain (ide.<domain>), read from the
+ * pod's first process; the Gitea address in the service environment the
+ * platform writes for the IDE (git.<domain>).
+ */
+function platformDomain(): string | undefined {
+    if (process.env.DOMAIN_NAME) {
+        return process.env.DOMAIN_NAME;
+    }
+    const env = readIfThere(path.join(os.homedir(), '.env')).match(/^\s*(?:export\s+)?DOMAIN_NAME=["']?([^"'\s]+)/m);
+    if (env) {
+        return env[1];
+    }
+    const proxy = readIfThere('/proc/1/cmdline').split('\0').find((a) => a.startsWith('--proxy-domain='));
+    if (proxy) {
+        return proxy.slice('--proxy-domain='.length).replace(/^ide\./, '');
+    }
+    const gitea = readIfThere(path.join(os.homedir(), '.config', 'thinkube', 'service-env-cs.sh')).match(/GITEA_URL=["']?https?:\/\/([^/"'\s]+)/);
+    if (gitea) {
+        return gitea[1].replace(/^[^.]+\./, '');
+    }
+    return undefined;
+}
+
+function baseUrl(): string {
+    const configured = vscode.workspace.getConfiguration('thinkubeNotebookView').get<string>('baseUrl', '').trim();
+    if (configured) {
+        return configured.endsWith('/') ? configured : configured + '/';
+    }
+    const domain = platformDomain();
+    if (!domain) {
+        throw new Error('thinkubeNotebookView.baseUrl is not set and DOMAIN_NAME is not known');
+    }
+    const user = process.env.JUPYTERHUB_USER || os.userInfo().username;
+    return `https://notebooks.${domain}/user/${user}/lab/tree/${NOTEBOOKS_FOLDER}`;
+}
+
+/** A notebook path (relative to the notebooks folder) or a full address, as an address. */
+export function resolveTarget(target: string): string {
+    const trimmed = target.trim();
+    if (/^https?:\/\//i.test(trimmed)) {
+        return trimmed;
+    }
+    let rel = trimmed.replace(/^\/+/, '');
+    if (rel.startsWith(NOTEBOOKS_FOLDER)) {
+        rel = rel.slice(NOTEBOOKS_FOLDER.length);
+    }
+    return baseUrl() + rel.split('/').map(encodeURIComponent).join('/');
+}
+
+function titleFor(url: string): string {
+    const last = decodeURIComponent(url.replace(/[?#].*$/, '').split('/').pop() || '');
+    return last || 'Notebook';
+}
+
+// ---------------------------------------------------------------------------
+// The tab
+// ---------------------------------------------------------------------------
+
+function html(url: string): string {
+    const escaped = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src https: http://localhost:* http://127.0.0.1:*; style-src 'unsafe-inline';">
+<style>
+  html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
+  iframe { border: 0; width: 100%; height: 100%; display: block; }
+</style>
+</head>
+<body>
+<iframe src="${escaped}" allow="clipboard-read; clipboard-write; fullscreen; downloads"></iframe>
+</body>
+</html>`;
+}
+
+export function openNotebook(target: string): string {
+    const url = resolveTarget(target);
+    const existing = panels.get(url);
+    if (existing) {
+        existing.reveal(existing.viewColumn ?? vscode.ViewColumn.Active, false);
+        return url;
+    }
+    const panel = vscode.window.createWebviewPanel(VIEW_TYPE, titleFor(url), vscode.ViewColumn.Active, {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+    });
+    panel.webview.html = html(url);
+    panels.set(url, panel);
+    activePanel = panel;
+    panel.onDidChangeViewState((e) => {
+        if (e.webviewPanel.active) {
+            activePanel = e.webviewPanel;
+        }
+    });
+    panel.onDidDispose(() => {
+        panels.delete(url);
+        if (activePanel === panel) {
+            activePanel = undefined;
+        }
+    });
+    output.appendLine(`opened ${url}`);
+    return url;
+}
+
+function urlOf(panel: vscode.WebviewPanel): string | undefined {
+    for (const [url, p] of panels) {
+        if (p === panel) {
+            return url;
+        }
+    }
+    return undefined;
+}
+
+// ---------------------------------------------------------------------------
+// The listener the terminal talks to
+// ---------------------------------------------------------------------------
+
+function readBody(req: http.IncomingMessage): Promise<string> {
+    return new Promise((resolve) => {
+        let data = '';
+        req.on('data', (chunk) => (data += chunk));
+        req.on('end', () => resolve(data));
+    });
+}
+
+function answer(res: http.ServerResponse, status: number, body: unknown): void {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(body));
+}
+
+function startListener(port: number): http.Server {
+    const server = http.createServer(async (req, res) => {
+        const url = new URL(req.url || '/', 'http://127.0.0.1');
+        if (url.pathname === '/health') {
+            answer(res, 200, { status: 'ok', service: 'thinkube-notebook-view', open: [...panels.keys()] });
+            return;
+        }
+        if (url.pathname !== '/open') {
+            answer(res, 404, { error: 'unknown path; use /open or /health' });
+            return;
+        }
+        let target = url.searchParams.get('target') || url.searchParams.get('url') || url.searchParams.get('path') || '';
+        if (!target && req.method === 'POST') {
+            try {
+                const body = JSON.parse((await readBody(req)) || '{}');
+                target = body.target || body.url || body.path || '';
+            } catch {
+                answer(res, 400, { error: 'body must be JSON with target' });
+                return;
+            }
+        }
+        if (!target) {
+            answer(res, 400, { error: 'target is required: a notebook path or an address' });
+            return;
+        }
+        try {
+            const opened = openNotebook(target);
+            answer(res, 200, { opened });
+        } catch (e) {
+            answer(res, 500, { error: (e as Error).message });
+        }
+    });
+    server.on('error', (e: NodeJS.ErrnoException) => {
+        const reason = e.code === 'EADDRINUSE' ? `port ${port} is in use` : e.message;
+        output.appendLine(`listener not started: ${reason}`);
+        vscode.window.showWarningMessage(`Thinkube Notebook View: ${reason}; tk-notebook-open will not work until the port is free.`);
+    });
+    server.listen(port, '127.0.0.1', () => output.appendLine(`listening on 127.0.0.1:${port}`));
+    return server;
+}
+
+// ---------------------------------------------------------------------------
+// Activation
+// ---------------------------------------------------------------------------
+
+export function activate(context: vscode.ExtensionContext): void {
+    output = vscode.window.createOutputChannel('Thinkube Notebook View');
+    context.subscriptions.push(output);
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('thinkube-notebook-view.open', async (arg?: string | { target?: string; url?: string; path?: string }) => {
+            let target = typeof arg === 'string' ? arg : arg?.target || arg?.url || arg?.path;
+            if (!target) {
+                target = await vscode.window.showInputBox({
+                    prompt: 'Notebook path under the notebooks folder, or its address',
+                    placeHolder: 'examples/research-assistant/00-platform-validation.ipynb',
+                });
+            }
+            if (!target) {
+                return;
+            }
+            try {
+                openNotebook(target);
+            } catch (e) {
+                vscode.window.showErrorMessage(`Thinkube Notebook View: ${(e as Error).message}`);
+            }
+        }),
+        vscode.commands.registerCommand('thinkube-notebook-view.reload', () => {
+            const panel = activePanel;
+            const url = panel && urlOf(panel);
+            if (panel && url) {
+                panel.webview.html = '';
+                panel.webview.html = html(url);
+            }
+        }),
+        vscode.commands.registerCommand('thinkube-notebook-view.openExternal', () => {
+            const panel = activePanel;
+            const url = panel && urlOf(panel);
+            if (url) {
+                void vscode.env.openExternal(vscode.Uri.parse(url));
+            }
+        }),
+    );
+
+    const port = vscode.workspace.getConfiguration('thinkubeNotebookView').get<number>('port', 47311);
+    const server = startListener(port);
+    context.subscriptions.push({ dispose: () => server.close() });
+}
+
+export function deactivate(): void {
+    for (const panel of panels.values()) {
+        panel.dispose();
+    }
+    panels.clear();
+}

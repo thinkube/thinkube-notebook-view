@@ -1,0 +1,10 @@
+.vscode/**
+src/**
+.gitignore
+**/tsconfig.json
+**/*.map
+**/*.ts
+node_modules/**
+*.vsix
+.github/**
+CLAUDE.md

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Open a notebook in a Thinkube IDE tab.
+#   tk-notebook-open <notebook path under the notebooks folder | address>
+# Talks to the Thinkube Notebook View extension on its loopback port.
+if [ -z "$1" ]; then
+  echo "usage: tk-notebook-open <notebook path or address>" >&2
+  exit 2
+fi
+PORT="${TK_NOTEBOOK_VIEW_PORT:-47311}"
+if ! curl -sf --get --data-urlencode "target=$1" "http://127.0.0.1:$PORT/open"; then
+  echo "Thinkube IDE did not answer on port $PORT; the Thinkube Notebook View extension is not running." >&2
+  exit 1
+fi
+echo

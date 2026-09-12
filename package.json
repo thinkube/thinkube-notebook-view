@@ -1,0 +1,96 @@
+{
+  "name": "thinkube-notebook-view",
+  "displayName": "Thinkube Notebook View",
+  "description": "Shows a Thinkube Notebooks notebook in an editor tab, with the clipboard working, and lets Claude Code open it from the terminal.",
+  "version": "0.1.0",
+  "publisher": "thinkube",
+  "license": "Apache-2.0",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/thinkube/thinkube-notebook-view"
+  },
+  "engines": {
+    "vscode": "^1.100.0"
+  },
+  "categories": [
+    "Notebooks",
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "thinkube-notebook-view.open",
+        "title": "Open notebook in a tab",
+        "category": "Thinkube Notebooks"
+      },
+      {
+        "command": "thinkube-notebook-view.reload",
+        "title": "Reload notebook tab",
+        "category": "Thinkube Notebooks",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "thinkube-notebook-view.openExternal",
+        "title": "Open notebook in the browser",
+        "category": "Thinkube Notebooks",
+        "icon": "$(link-external)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "thinkube-notebook-view.reload",
+          "when": "activeWebviewPanelId == thinkubeNotebook",
+          "group": "navigation@1"
+        },
+        {
+          "command": "thinkube-notebook-view.openExternal",
+          "when": "activeWebviewPanelId == thinkubeNotebook",
+          "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "thinkube-notebook-view.reload",
+          "when": "activeWebviewPanelId == thinkubeNotebook"
+        },
+        {
+          "command": "thinkube-notebook-view.openExternal",
+          "when": "activeWebviewPanelId == thinkubeNotebook"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Thinkube Notebook View",
+      "properties": {
+        "thinkubeNotebookView.baseUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Address a notebook path is appended to, for example https://notebooks.example.com/user/thinkube/lab/tree/thinkube/notebooks/. Empty: built from the platform's domain and the current user."
+        },
+        "thinkubeNotebookView.port": {
+          "type": "number",
+          "default": 47311,
+          "description": "Loopback port the extension listens on for open requests from the terminal (tk-notebook-open)."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "package": "vsce package"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "^3.0.0",
+    "typescript": "^5.8.3"
+  }
+}
