@@ -63,6 +63,29 @@ function platformDomain(): string | undefined {
     return undefined;
 }
 
+/** Which page of the notebook server the tab shows: one notebook, or the whole of JupyterLab. */
+function page(): 'notebook' | 'lab' {
+    return vscode.workspace.getConfiguration('thinkubeNotebookView').get<string>('page', 'notebook') === 'lab' ? 'lab' : 'notebook';
+}
+
+/** The route of the chosen page: Notebook's single-document page, or JupyterLab's file tree. */
+function route(): string {
+    return page() === 'lab' ? 'lab/tree/' : 'notebooks/';
+}
+
+/**
+ * An address on the notebook server, rewritten to the chosen page. The two
+ * pages show the same document on the same kernel; only the surrounding
+ * interface differs. Addresses that are not a notebook page are left alone.
+ */
+export function applyPage(url: string): string {
+    const match = url.match(/^(https?:\/\/[^/]+\/user\/[^/]+\/)(lab\/(?:workspaces\/[^/]+\/)?tree|notebooks)\/(.+\.ipynb)(.*)$/i);
+    if (!match) {
+        return url;
+    }
+    return `${match[1]}${route()}${match[3]}${match[4]}`;
+}
+
 function baseUrl(): string {
     const configured = vscode.workspace.getConfiguration('thinkubeNotebookView').get<string>('baseUrl', '').trim();
     if (configured) {
@@ -73,14 +96,14 @@ function baseUrl(): string {
         throw new Error('thinkubeNotebookView.baseUrl is not set and DOMAIN_NAME is not known');
     }
     const user = process.env.JUPYTERHUB_USER || os.userInfo().username;
-    return `https://notebooks.${domain}/user/${user}/lab/tree/${NOTEBOOKS_FOLDER}`;
+    return `https://notebooks.${domain}/user/${user}/${route()}${NOTEBOOKS_FOLDER}`;
 }
 
-/** A notebook path (relative to the notebooks folder) or a full address, as an address. */
+/** A notebook path (relative to the notebooks folder) or a full address, as an address of the chosen page. */
 export function resolveTarget(target: string): string {
     const trimmed = target.trim();
     if (/^https?:\/\//i.test(trimmed)) {
-        return trimmed;
+        return applyPage(trimmed);
     }
     let rel = trimmed.replace(/^\/+/, '');
     if (rel.startsWith(NOTEBOOKS_FOLDER)) {
