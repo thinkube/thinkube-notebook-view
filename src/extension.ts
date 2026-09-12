@@ -122,6 +122,48 @@ function titleFor(url: string): string {
 // The tab
 // ---------------------------------------------------------------------------
 
+function messageHtml(title: string, lines: string[]): string {
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline';">
+<style>
+  body { font-family: var(--vscode-font-family); color: var(--vscode-foreground); padding: 2rem; line-height: 1.5; }
+  h1 { font-size: 1.2rem; }
+</style>
+</head>
+<body>
+<h1>${title}</h1>
+${lines.map((l) => `<p>${l}</p>`).join('\n')}
+</body>
+</html>`;
+}
+
+/**
+ * Whether the notebook server behind an address is up. A plain request with
+ * no sign-in is answered by the server itself when it runs (a redirect to
+ * sign in, or the page), and by the Hub's "not running" route when it does
+ * not. Anything unreachable is reported as unknown and the page is shown.
+ */
+function serverState(url: string): Promise<'up' | 'down' | 'unknown'> {
+    return new Promise((resolve) => {
+        const https = url.startsWith('https:') ? require('https') : require('http');
+        const req = https.request(url, { method: 'GET', timeout: 5000 }, (res: http.IncomingMessage) => {
+            const location = res.headers.location || '';
+            res.resume();
+            if (res.statusCode === 424 || location.includes('/hub/user/')) {
+                resolve('down');
+            } else {
+                resolve('up');
+            }
+        });
+        req.on('error', () => resolve('unknown'));
+        req.on('timeout', () => { req.destroy(); resolve('unknown'); });
+        req.end();
+    });
+}
+
 function html(url: string): string {
     const escaped = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
     const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
@@ -145,6 +187,15 @@ function html(url: string): string {
 /** Wire a panel to an address: content, bookkeeping, and the state VS Code keeps across a window reload. */
 function attach(panel: vscode.WebviewPanel, url: string): void {
     panel.webview.html = html(url);
+    void serverState(url).then((state) => {
+        if (state === 'down' && panels.get(url) === panel) {
+            panel.webview.html = messageHtml('No notebook server is running', [
+                'The notebook cannot be shown until a server runs.',
+                'Start one from Thinkube Notebooks, or ask Claude for <code>start_notebook_server</code>, then press Reload on this tab.',
+                `Notebook: <code>${titleFor(url)}</code>`,
+            ]);
+        }
+    });
     panels.set(url, panel);
     activePanel = panel;
     panel.onDidChangeViewState((e) => {
@@ -164,6 +215,9 @@ export function openNotebook(target: string): string {
     const url = resolveTarget(target);
     const existing = panels.get(url);
     if (existing) {
+        // Asked for again: show it, and load the page afresh in case the server changed underneath it.
+        existing.webview.html = '';
+        existing.webview.html = html(url);
         existing.reveal(existing.viewColumn ?? vscode.ViewColumn.Active, false);
         return url;
     }

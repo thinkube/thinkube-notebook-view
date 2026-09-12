@@ -2,7 +2,7 @@
   "name": "thinkube-notebook-view",
   "displayName": "Thinkube Notebook View",
   "description": "Shows a Thinkube Notebooks notebook in an editor tab, with the clipboard working, and lets Claude Code open it from the terminal.",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "publisher": "thinkube",
   "license": "Apache-2.0",
   "icon": "icon.png",
