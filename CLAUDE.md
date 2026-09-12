@@ -8,6 +8,7 @@ A small VS Code extension for Thinkube IDE (code-server). One source file, `src/
 
 - `openNotebook(target)` creates or reveals a webview panel whose HTML is one iframe on the notebook's JupyterLab address, with `allow="clipboard-read; clipboard-write"` so the clipboard works inside it.
 - `resolveTarget` turns a path under the notebooks folder into an address using `thinkubeNotebookView.baseUrl`, or `https://notebooks.<DOMAIN_NAME>/user/<user>/<route>/thinkube/notebooks/`, where the route is `notebooks/` (single-document page, default) or `lab/tree/` by the `page` setting; `applyPage` rewrites a given address to the chosen page.
+- `PanelRestorer` is the webview serializer: the page stores its address as webview state, and VS Code hands it back after a window reload so the tab is rebuilt.
 - `startListener` serves `/open` and `/health` on `127.0.0.1:<port>`; `bin/tk-notebook-open` is the terminal side.
 
 ## Rules

@@ -19,7 +19,7 @@ tk-notebook-open examples/research-assistant/00-platform-validation.ipynb
 tk-notebook-open https://notebooks.example.com/user/thinkube/lab/tree/thinkube/notebooks/scratch/a.ipynb
 ```
 
-The tab's title bar has *Reload* and *Open in the browser*.
+The tab's title bar has *Reload* and *Open in the browser*. Tabs come back after a window reload.
 
 ## Settings
 

@@ -123,11 +123,12 @@ function titleFor(url: string): string {
 
 function html(url: string): string {
     const escaped = url.replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+    const nonce = Math.random().toString(36).slice(2) + Date.now().toString(36);
     return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src https: http://localhost:* http://127.0.0.1:*; style-src 'unsafe-inline';">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; frame-src https: http://localhost:* http://127.0.0.1:*; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 <style>
   html, body { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: transparent; }
   iframe { border: 0; width: 100%; height: 100%; display: block; }
@@ -135,21 +136,13 @@ function html(url: string): string {
 </head>
 <body>
 <iframe src="${escaped}" allow="clipboard-read; clipboard-write; fullscreen; downloads"></iframe>
+<script nonce="${nonce}">acquireVsCodeApi().setState({ url: ${JSON.stringify(url)} });</script>
 </body>
 </html>`;
 }
 
-export function openNotebook(target: string): string {
-    const url = resolveTarget(target);
-    const existing = panels.get(url);
-    if (existing) {
-        existing.reveal(existing.viewColumn ?? vscode.ViewColumn.Active, false);
-        return url;
-    }
-    const panel = vscode.window.createWebviewPanel(VIEW_TYPE, titleFor(url), vscode.ViewColumn.Active, {
-        enableScripts: true,
-        retainContextWhenHidden: true,
-    });
+/** Wire a panel to an address: content, bookkeeping, and the state VS Code keeps across a window reload. */
+function attach(panel: vscode.WebviewPanel, url: string): void {
     panel.webview.html = html(url);
     panels.set(url, panel);
     activePanel = panel;
@@ -164,8 +157,36 @@ export function openNotebook(target: string): string {
             activePanel = undefined;
         }
     });
+}
+
+export function openNotebook(target: string): string {
+    const url = resolveTarget(target);
+    const existing = panels.get(url);
+    if (existing) {
+        existing.reveal(existing.viewColumn ?? vscode.ViewColumn.Active, false);
+        return url;
+    }
+    const panel = vscode.window.createWebviewPanel(VIEW_TYPE, titleFor(url), vscode.ViewColumn.Active, {
+        enableScripts: true,
+        retainContextWhenHidden: true,
+    });
+    attach(panel, url);
     output.appendLine(`opened ${url}`);
     return url;
+}
+
+/** Brings the tabs back after a window reload: VS Code recreates each panel and hands over the address it was on. */
+class PanelRestorer implements vscode.WebviewPanelSerializer<{ url?: string }> {
+    async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: { url?: string } | undefined): Promise<void> {
+        const url = state?.url;
+        if (!url) {
+            panel.dispose();
+            return;
+        }
+        panel.title = titleFor(url);
+        attach(panel, url);
+        output.appendLine(`restored ${url}`);
+    }
 }
 
 function urlOf(panel: vscode.WebviewPanel): string | undefined {
@@ -277,6 +298,8 @@ export function activate(context: vscode.ExtensionContext): void {
             }
         }),
     );
+
+    context.subscriptions.push(vscode.window.registerWebviewPanelSerializer(VIEW_TYPE, new PanelRestorer()));
 
     const port = vscode.workspace.getConfiguration('thinkubeNotebookView').get<number>('port', 47311);
     const server = startListener(port);
