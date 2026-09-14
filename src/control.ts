@@ -41,6 +41,7 @@ export interface NodeServer {
     extension?: { status?: string; version?: string; error?: string } | null;
     kernels?: RunningKernel[] | null;
     error?: string | null;
+    start_error?: string | null;
 }
 
 export interface OtherServer {
@@ -141,7 +142,7 @@ export class Control {
         return this.call('GET', '/jupyter/servers');
     }
 
-    /** Starts the server on a node with the node's defaults, and waits until it is ready. */
+    /** Asks for the server on a node to start with the node's defaults; answers while it is still starting. */
     start(node: string): Promise<NodeServer> {
         return this.call('POST', `/jupyter/servers/${encodeURIComponent(node)}/start`);
     }

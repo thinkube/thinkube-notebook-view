@@ -138,6 +138,9 @@ export class ServersView implements vscode.TreeDataProvider<Node> {
                 if (s.state === 'running') {
                     item.description = `running · ${resources(s)}`;
                     item.iconPath = new vscode.ThemeIcon('vm-running', new vscode.ThemeColor('testing.iconPassed'));
+                } else if (s.state === 'stopped' && s.start_error) {
+                    item.description = `did not start · ${s.start_error}`;
+                    item.iconPath = new vscode.ThemeIcon('warning', new vscode.ThemeColor('problemsWarningIcon.foreground'));
                 } else if (s.state === 'stopped') {
                     item.description = `stopped · starts with ${resources(s.defaults)}`;
                     item.iconPath = new vscode.ThemeIcon('vm-outline');
@@ -154,6 +157,9 @@ export class ServersView implements vscode.TreeDataProvider<Node> {
                 }
                 if (s.extension) {
                     tooltip.appendMarkdown(`Notebook tools: ${s.extension.status}${s.extension.version ? ` (${s.extension.version})` : ''}\n\n`);
+                }
+                if (s.start_error) {
+                    tooltip.appendMarkdown(`The last start failed: ${s.start_error}\n\n`);
                 }
                 if (s.error) {
                     tooltip.appendMarkdown(`Kernels could not be read: ${s.error}`);

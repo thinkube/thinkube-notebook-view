@@ -568,18 +568,82 @@ class NotebookEditorProvider implements vscode.CustomReadonlyEditorProvider {
 // The notebook servers
 // ---------------------------------------------------------------------------
 
-/** Start a node's server with its defaults; true when it is running. */
+const FOLLOW_INTERVAL_MS = 3000;
+const START_DEADLINE_MS = 10 * 60 * 1000;
+const STOP_DEADLINE_MS = 2 * 60 * 1000;
+
+function sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** A node's server as the servers' state shows it now; 'stopped' for the Hub's default server when it is not listed. */
+function stateOf(current: ServersStatus, node: string): { state: string; ready: boolean; startError?: string | null } {
+    if (node === HUB_DEFAULT) {
+        const server = current.other_servers.find((s) => s.kind === 'hub-default');
+        return { state: server?.state ?? 'stopped', ready: server?.state === 'running' };
+    }
+    const server = current.servers.find((s) => s.node === node);
+    return {
+        state: server?.state ?? 'stopped',
+        ready: server?.state === 'running' && server.extension?.status === 'ok',
+        startError: server?.start_error,
+    };
+}
+
+/**
+ * Follow a node's server until `done` says so or the deadline passes. A read
+ * that fails (thinkube-control restarting, a gateway timeout) is not an
+ * answer; the next read is.
+ */
+async function follow(node: string, deadlineMs: number, done: (s: ReturnType<typeof stateOf>, reads: number) => boolean): Promise<ReturnType<typeof stateOf> | undefined> {
+    const deadline = Date.now() + deadlineMs;
+    let reads = 0;
+    let last: ReturnType<typeof stateOf> | undefined;
+    while (Date.now() < deadline) {
+        try {
+            last = stateOf(await status(), node);
+            reads += 1;
+            if (done(last, reads)) {
+                return last;
+            }
+        } catch (e) {
+            output.appendLine(`reading the servers while following ${node}: ${(e as Error).message}`);
+        }
+        await sleep(FOLLOW_INTERVAL_MS);
+    }
+    return last;
+}
+
+/**
+ * Start a node's server with its defaults; true once it runs and its tools
+ * answer. thinkube-control answers as soon as the Hub has the request, and
+ * the server's state is followed from there. A request that failed on the
+ * way may still have reached the Hub, so its error is reported only when the
+ * server does not start.
+ */
 async function startServer(node: string): Promise<boolean> {
     let started = false;
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Starting the notebook server on ${node}…` }, async () => {
-        const request = control.start(node);
-        setTimeout(() => void sidebar.refresh(), 2000);
+        let requestError: string | undefined;
         try {
-            const server = await request;
-            started = server.state === 'running';
-            vscode.window.showInformationMessage(`Thinkube Notebooks: the server on ${node} is ${server.state}.`);
+            await control.start(node);
         } catch (e) {
-            vscode.window.showErrorMessage(`Thinkube Notebooks: the server on ${node} did not start. ${(e as Error).message}`);
+            requestError = (e as Error).message;
+        }
+        const last = await follow(node, START_DEADLINE_MS, (s, reads) =>
+            s.ready || !!s.startError || (s.state === 'stopped' && (requestError !== undefined ? reads >= 3 : reads >= 10)),
+        );
+        if (last?.ready) {
+            started = true;
+            vscode.window.showInformationMessage(`Thinkube Notebooks: the server on ${node} is running.`);
+        } else if (last?.startError) {
+            vscode.window.showErrorMessage(`Thinkube Notebooks: the server on ${node} did not start. ${last.startError}`);
+        } else if (last?.state === 'running') {
+            vscode.window.showWarningMessage(`Thinkube Notebooks: the server on ${node} is running, but its notebook tools do not answer yet.`);
+        } else if (last?.state === 'starting') {
+            vscode.window.showWarningMessage(`Thinkube Notebooks: the server on ${node} is still starting after ${START_DEADLINE_MS / 60000} minutes.`);
+        } else {
+            vscode.window.showErrorMessage(`Thinkube Notebooks: the server on ${node} did not start. ${requestError ?? 'It stopped before it was ready.'}`);
         }
     });
     await sidebar.refresh();
@@ -598,10 +662,15 @@ async function stopServer(node: string): Promise<void> {
         return;
     }
     await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `Stopping ${name}…` }, async () => {
+        let requestError: string | undefined;
         try {
             await control.stop(node);
         } catch (e) {
-            vscode.window.showErrorMessage(`Thinkube Notebooks: ${name} did not stop. ${(e as Error).message}`);
+            requestError = (e as Error).message;
+        }
+        const last = await follow(node, STOP_DEADLINE_MS, (s, reads) => s.state === 'stopped' || (requestError !== undefined && s.state === 'running' && reads >= 3));
+        if (last?.state !== 'stopped') {
+            vscode.window.showErrorMessage(`Thinkube Notebooks: ${name} did not stop${last ? ` (it is ${last.state})` : ''}. ${requestError ?? ''}`.trim());
         }
     });
     await sidebar.refresh();
