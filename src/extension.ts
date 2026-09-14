@@ -8,9 +8,7 @@
  * The tab is a webview holding one iframe on the notebook's own address, so
  * JupyterLab renders it, signed in, on the kernel it already has. The iframe
  * is given the clipboard permissions the webview holds, which is what VS
- * Code's Simple Browser withholds; copying out of the notebook works. The
- * iframe is only loaded once the server is known to run, so opening a tab
- * never reaches the Hub's page that starts a server.
+ * Code's Simple Browser withholds; copying out of the notebook works.
  *
  * The side bar reads and drives the notebook server through thinkube-control
  * (see control.ts and sidebar.ts).
@@ -75,12 +73,12 @@ function platformDomain(): string | undefined {
     return undefined;
 }
 
-/** Which page of the notebook server the tab shows: the whole of JupyterLab, or one notebook. */
+/** Which page of the notebook server the tab shows: one notebook, or the whole of JupyterLab. */
 function page(): 'notebook' | 'lab' {
-    return vscode.workspace.getConfiguration('thinkubeNotebookView').get<string>('page', 'lab') === 'notebook' ? 'notebook' : 'lab';
+    return vscode.workspace.getConfiguration('thinkubeNotebookView').get<string>('page', 'notebook') === 'lab' ? 'lab' : 'notebook';
 }
 
-/** The route of the chosen page: JupyterLab's file tree, or Notebook's single-document page. */
+/** The route of the chosen page: Notebook's single-document page, or JupyterLab's file tree. */
 function route(): string {
     return page() === 'lab' ? 'lab/tree/' : 'notebooks/';
 }
@@ -212,11 +210,10 @@ function frameHtml(url: string): string {
 }
 
 /**
- * Whether the notebook server behind an address is up, without a token for
- * thinkube-control. A plain request with no sign-in is answered by the server
- * itself when it runs (a redirect to sign in, or the page), and by the Hub's
- * "not running" route when it does not; neither starts a server. Anything
- * unreachable is reported as unknown.
+ * Whether the notebook server behind an address is up. A plain request with
+ * no sign-in is answered by the server itself when it runs (a redirect to
+ * sign in, or the page), and by the Hub's "not running" route when it does
+ * not. Anything unreachable is reported as unknown and the page is shown.
  */
 function probeServer(url: string): Promise<'up' | 'down' | 'unknown'> {
     return new Promise((resolve) => {
@@ -232,31 +229,12 @@ function probeServer(url: string): Promise<'up' | 'down' | 'unknown'> {
     });
 }
 
-async function serverState(url: string): Promise<'up' | 'down' | 'pending' | 'unknown'> {
-    if (controlConfigured()) {
-        try {
-            const status = await control.status();
-            return status.running ? 'up' : status.pending ? 'pending' : 'down';
-        } catch (e) {
-            output.appendLine(`server status from thinkube-control failed: ${(e as Error).message}`);
-        }
-    }
-    return probeServer(url);
-}
-
-/** Put the right page in a tab: the notebook when the server runs, a message with what to do when not. */
+/** Put the notebook in a tab, and replace it with a message when the server turns out not to run. */
 async function load(panel: vscode.WebviewPanel, url: string): Promise<void> {
-    panel.webview.html = messageHtml(url, 'Checking the notebook server…', [titleFor(url)]);
-    const state = await serverState(url);
-    if (panels.get(url) !== panel) {
-        return;
-    }
-    if (state === 'up' || state === 'unknown') {
-        panel.webview.html = '';
-        panel.webview.html = frameHtml(url);
-    } else if (state === 'pending') {
-        panel.webview.html = messageHtml(url, 'The notebook server is starting', ['The notebook opens here when it is ready.', `Notebook: ${titleFor(url)}`], [{ action: 'reload', label: 'Reload' }]);
-    } else {
+    panel.webview.html = '';
+    panel.webview.html = frameHtml(url);
+    const state = await probeServer(url);
+    if (state === 'down' && panels.get(url) === panel) {
         panel.webview.html = messageHtml(
             url,
             'No notebook server is running',

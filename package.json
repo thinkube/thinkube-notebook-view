@@ -2,7 +2,7 @@
   "name": "thinkube-notebook-view",
   "displayName": "Thinkube Notebook View",
   "description": "Shows a Thinkube Notebooks notebook in an editor tab, with the clipboard working, manages the notebook server from a side bar, and lets Claude Code open a notebook from the terminal.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "thinkube",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -215,14 +215,14 @@
         "thinkubeNotebookView.page": {
           "type": "string",
           "enum": [
-            "lab",
-            "notebook"
+            "notebook",
+            "lab"
           ],
           "enumDescriptions": [
-            "The whole of JupyterLab: file browser, launcher and its own tabs.",
-            "One notebook with its toolbar and kernel: the Notebook single-document page."
+            "One notebook with its toolbar and kernel: the Notebook single-document page.",
+            "The whole of JupyterLab: file browser, launcher and its own tabs."
           ],
-          "default": "lab",
+          "default": "notebook",
           "description": "Which page of the notebook server the tab shows. Both show the same document on the same kernel."
         },
         "thinkubeNotebookView.baseUrl": {
