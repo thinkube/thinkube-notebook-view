@@ -2,33 +2,16 @@
 // SPDX-License-Identifier: Apache-2.0
 
 /**
- * The calls this extension makes to thinkube-control's API: the notebook
- * server's state, starting and stopping it, the notebooks and kernels on it,
- * and the unattended runs. thinkube-control holds the JupyterHub credentials;
- * the extension only presents the platform token the IDE is given.
+ * The calls this extension makes to thinkube-control's API: every node's
+ * notebook server, starting and stopping one, the kernels open on it, and the
+ * unattended runs. thinkube-control holds the JupyterHub credentials; the
+ * extension only presents the platform token the IDE is given.
  */
 
 import * as vscode from 'vscode';
 
-export interface ServerStatus {
-    running: boolean;
-    pending?: string | null;
-    node?: string | null;
-    cpu_cores?: number | null;
-    memory_gb?: number | null;
-    gpus?: number | null;
-    url?: string | null;
-    last_activity?: string | null;
-    extension?: { status?: string; version?: string; error?: string } | null;
-    named_servers: { server_name: string; ready?: boolean; pending?: string | null; node?: string }[];
-    message: string;
-}
-
-export interface NotebookEntry {
-    notebook_path: string;
-    kernel_name?: string;
-    kernel_id?: string;
-}
+/** The node name thinkube-control uses for the Hub's default server. */
+export const HUB_DEFAULT = 'default';
 
 export interface RunningKernel {
     kernel_id: string;
@@ -37,32 +20,52 @@ export interface RunningKernel {
     notebook_path?: string;
 }
 
+export interface Resources {
+    cpu_cores: number;
+    memory_gb: number;
+    gpus: number;
+}
+
+export interface NodeServer {
+    node: string;
+    server_name: string;
+    state: 'running' | 'starting' | 'stopping' | 'stopped';
+    cpu_cores?: number | null;
+    memory_gb?: number | null;
+    gpus?: number | null;
+    defaults: Resources;
+    capacity: Resources;
+    gpus_free: number;
+    url?: string | null;
+    last_activity?: string | null;
+    extension?: { status?: string; version?: string; error?: string } | null;
+    kernels?: RunningKernel[] | null;
+    error?: string | null;
+}
+
+export interface OtherServer {
+    server_name: string;
+    kind: 'hub-default' | 'unattended-run';
+    state: string;
+    node?: string | null;
+    cpu_cores?: number | null;
+    memory_gb?: number | null;
+    gpus?: number | null;
+    url?: string | null;
+}
+
+export interface ServersStatus {
+    servers: NodeServer[];
+    other_servers: OtherServer[];
+    message: string;
+}
+
 export interface NotebookJob {
     job_id: string;
     server_name: string;
     notebook_path: string;
     node?: string;
     status: string;
-}
-
-export interface NodeResources {
-    name: string;
-    capacity: { cpu: number; memory: string; gpu?: number; effective_gpu?: number };
-    available: { cpu: number; memory: string; gpu?: number };
-}
-
-export interface ServerDefaults {
-    default_node: string | null;
-    default_cpu_cores: number;
-    default_memory_gb: number;
-    default_gpu_count: number;
-}
-
-export interface StartRequest {
-    node: string;
-    cpu_cores: number;
-    memory_gb: number;
-    gpus: number;
 }
 
 export class ControlError extends Error {}
@@ -125,8 +128,8 @@ export class Control {
     }
 
     /** A notebook tool's result, or its error as a ControlError. */
-    private async tool<T>(method: 'GET' | 'POST', route: string, body?: unknown): Promise<T> {
-        const data = await this.call<{ result: any }>(method, route, body);
+    private async tool<T>(route: string, body: unknown): Promise<T> {
+        const data = await this.call<{ result: any }>('POST', route, body);
         const result = data.result ?? {};
         if (result.success === false) {
             throw new ControlError(result.error || result.message || 'the notebook tool failed');
@@ -134,24 +137,17 @@ export class Control {
         return result as T;
     }
 
-    status(): Promise<ServerStatus> {
-        return this.call('GET', '/jupyter/server');
+    servers(): Promise<ServersStatus> {
+        return this.call('GET', '/jupyter/servers');
     }
 
-    start(request: StartRequest): Promise<ServerStatus> {
-        return this.call('POST', '/jupyter/server/start', request);
+    /** Starts the server on a node with the node's defaults, and waits until it is ready. */
+    start(node: string): Promise<NodeServer> {
+        return this.call('POST', `/jupyter/servers/${encodeURIComponent(node)}/start`);
     }
 
-    stop(): Promise<ServerStatus> {
-        return this.call('POST', '/jupyter/server/stop');
-    }
-
-    defaults(): Promise<ServerDefaults> {
-        return this.call('GET', '/jupyterhub/config');
-    }
-
-    nodes(): Promise<NodeResources[]> {
-        return this.call('GET', '/cluster/resources');
+    stop(node: string): Promise<ServersStatus> {
+        return this.call('POST', `/jupyter/servers/${encodeURIComponent(node)}/stop`);
     }
 
     jobs(): Promise<NotebookJob[]> {
@@ -162,23 +158,15 @@ export class Control {
         return this.call('POST', `/jupyter/jobs/${encodeURIComponent(jobId)}/cancel`);
     }
 
-    async notebooks(): Promise<NotebookEntry[]> {
-        return (await this.tool<{ notebooks?: NotebookEntry[] }>('GET', '/jupyter/notebooks/list')).notebooks ?? [];
+    interruptKernel(node: string, notebookPath: string): Promise<unknown> {
+        return this.tool('/jupyter/notebooks/interrupt-kernel', { notebook_path: notebookPath, node });
     }
 
-    async kernels(): Promise<RunningKernel[]> {
-        return (await this.tool<{ running?: RunningKernel[] }>('GET', '/jupyter/notebooks/kernels')).running ?? [];
+    restartKernel(node: string, notebookPath: string): Promise<unknown> {
+        return this.tool('/jupyter/notebooks/restart-kernel', { notebook_path: notebookPath, node });
     }
 
-    interruptKernel(notebookPath: string): Promise<unknown> {
-        return this.tool('POST', '/jupyter/notebooks/interrupt-kernel', { notebook_path: notebookPath });
-    }
-
-    restartKernel(notebookPath: string): Promise<unknown> {
-        return this.tool('POST', '/jupyter/notebooks/restart-kernel', { notebook_path: notebookPath });
-    }
-
-    closeNotebook(notebookPath: string): Promise<unknown> {
-        return this.tool('POST', '/jupyter/notebooks/close', { notebook_path: notebookPath, shutdown_kernel: true });
+    closeNotebook(node: string, notebookPath: string): Promise<unknown> {
+        return this.tool('/jupyter/notebooks/close', { notebook_path: notebookPath, shutdown_kernel: true, node });
     }
 }

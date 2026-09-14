@@ -1,8 +1,8 @@
 {
   "name": "thinkube-notebook-view",
   "displayName": "Thinkube Notebook View",
-  "description": "Shows a Thinkube Notebooks notebook in an editor tab, with the clipboard working, manages the notebook server from a side bar, and lets Claude Code open a notebook from the terminal.",
-  "version": "0.2.1",
+  "description": "Shows a Thinkube Notebooks notebook in an editor tab on the notebook server of your choice, manages the notebook servers of every node from a side bar, and lets Claude Code open a notebook from the terminal.",
+  "version": "0.3.0",
   "publisher": "thinkube",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -19,7 +19,8 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onWebviewPanel:thinkubeNotebook"
+    "onWebviewPanel:thinkubeNotebook",
+    "onCustomEditor:thinkubeNotebook.editor"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -27,8 +28,7 @@
       {
         "command": "thinkube-notebook-view.open",
         "title": "Open notebook in a tab",
-        "category": "Thinkube Notebooks",
-        "icon": "$(go-to-file)"
+        "category": "Thinkube Notebooks"
       },
       {
         "command": "thinkube-notebook-view.reload",
@@ -67,15 +67,15 @@
         "icon": "$(window)"
       },
       {
-        "command": "thinkube-notebook-view.revealTab",
-        "title": "Show notebook tab",
+        "command": "thinkube-notebook-view.openOnServer",
+        "title": "Open notebook on a server",
         "category": "Thinkube Notebooks"
       },
       {
-        "command": "thinkube-notebook-view.closeTab",
-        "title": "Close tab",
+        "command": "thinkube-notebook-view.runOnServer",
+        "title": "Run on server…",
         "category": "Thinkube Notebooks",
-        "icon": "$(close)"
+        "icon": "$(play)"
       },
       {
         "command": "thinkube-notebook-view.interruptKernel",
@@ -106,89 +106,93 @@
       "editor/title": [
         {
           "command": "thinkube-notebook-view.reload",
-          "when": "activeWebviewPanelId == thinkubeNotebook",
+          "when": "activeWebviewPanelId == thinkubeNotebook || activeCustomEditorId == thinkubeNotebook.editor",
           "group": "navigation@1"
         },
         {
           "command": "thinkube-notebook-view.openExternal",
-          "when": "activeWebviewPanelId == thinkubeNotebook",
+          "when": "activeWebviewPanelId == thinkubeNotebook || activeCustomEditorId == thinkubeNotebook.editor",
           "group": "navigation@2"
         }
       ],
       "view/title": [
         {
-          "command": "thinkube-notebook-view.open",
-          "when": "view == thinkubeNotebooks.notebooks",
-          "group": "navigation@1"
-        },
-        {
           "command": "thinkube-notebook-view.refresh",
-          "when": "view == thinkubeNotebooks.server || view == thinkubeNotebooks.notebooks",
+          "when": "view == thinkubeNotebooks.servers",
           "group": "navigation@9"
         }
       ],
       "view/item/context": [
         {
           "command": "thinkube-notebook-view.startServer",
-          "when": "view == thinkubeNotebooks.server && viewItem == server.stopped",
+          "when": "view == thinkubeNotebooks.servers && viewItem == server.stopped",
           "group": "inline@1"
         },
         {
           "command": "thinkube-notebook-view.openLab",
-          "when": "view == thinkubeNotebooks.server && viewItem == server.running",
+          "when": "view == thinkubeNotebooks.servers && viewItem =~ /^(server.running|hubDefault)$/",
           "group": "inline@1"
         },
         {
           "command": "thinkube-notebook-view.stopServer",
-          "when": "view == thinkubeNotebooks.server && viewItem == server.running",
+          "when": "view == thinkubeNotebooks.servers && viewItem =~ /^(server.running|hubDefault)$/",
           "group": "inline@2"
         },
         {
           "command": "thinkube-notebook-view.cancelRun",
-          "when": "view == thinkubeNotebooks.server && viewItem == run.active",
+          "when": "view == thinkubeNotebooks.servers && viewItem == run.active",
           "group": "inline@1"
-        },
-        {
-          "command": "thinkube-notebook-view.openExternal",
-          "when": "view == thinkubeNotebooks.notebooks && viewItem == tab",
-          "group": "inline@1"
-        },
-        {
-          "command": "thinkube-notebook-view.closeTab",
-          "when": "view == thinkubeNotebooks.notebooks && viewItem == tab",
-          "group": "inline@2"
         },
         {
           "command": "thinkube-notebook-view.interruptKernel",
-          "when": "view == thinkubeNotebooks.notebooks && viewItem == kernel",
+          "when": "view == thinkubeNotebooks.servers && viewItem == kernel",
           "group": "inline@1"
         },
         {
           "command": "thinkube-notebook-view.restartKernel",
-          "when": "view == thinkubeNotebooks.notebooks && viewItem == kernel",
+          "when": "view == thinkubeNotebooks.servers && viewItem == kernel",
           "group": "inline@2"
         },
         {
           "command": "thinkube-notebook-view.shutdownKernel",
-          "when": "view == thinkubeNotebooks.notebooks && viewItem == kernel",
+          "when": "view == thinkubeNotebooks.servers && viewItem == kernel",
           "group": "inline@3"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "thinkube-notebook-view.runOnServer",
+          "when": "resourceExtname == .ipynb && resourcePath =~ /\\/thinkube-ai\\/notebooks\\//",
+          "group": "navigation@1"
         }
       ],
       "commandPalette": [
         {
           "command": "thinkube-notebook-view.reload",
-          "when": "activeWebviewPanelId == thinkubeNotebook"
+          "when": "activeWebviewPanelId == thinkubeNotebook || activeCustomEditorId == thinkubeNotebook.editor"
         },
         {
           "command": "thinkube-notebook-view.openExternal",
-          "when": "activeWebviewPanelId == thinkubeNotebook"
+          "when": "activeWebviewPanelId == thinkubeNotebook || activeCustomEditorId == thinkubeNotebook.editor"
         },
         {
-          "command": "thinkube-notebook-view.revealTab",
+          "command": "thinkube-notebook-view.runOnServer",
+          "when": "resourceExtname == .ipynb && resourcePath =~ /\\/thinkube-ai\\/notebooks\\//"
+        },
+        {
+          "command": "thinkube-notebook-view.openOnServer",
           "when": "false"
         },
         {
-          "command": "thinkube-notebook-view.closeTab",
+          "command": "thinkube-notebook-view.startServer",
+          "when": "false"
+        },
+        {
+          "command": "thinkube-notebook-view.stopServer",
+          "when": "false"
+        },
+        {
+          "command": "thinkube-notebook-view.openLab",
           "when": "false"
         },
         {
@@ -225,11 +229,6 @@
           "default": "notebook",
           "description": "Which page of the notebook server the tab shows. Both show the same document on the same kernel."
         },
-        "thinkubeNotebookView.baseUrl": {
-          "type": "string",
-          "default": "",
-          "description": "Address a notebook path is appended to, for example https://notebooks.example.com/user/thinkube/lab/tree/thinkube/notebooks/. Empty: built from the platform's domain and the current user."
-        },
         "thinkubeNotebookView.controlUrl": {
           "type": "string",
           "default": "",
@@ -254,18 +253,29 @@
     "views": {
       "thinkubeNotebooks": [
         {
-          "id": "thinkubeNotebooks.server",
-          "name": "Server",
-          "icon": "media/tk_docs.svg",
-          "contextualTitle": "Thinkube Notebooks"
-        },
-        {
-          "id": "thinkubeNotebooks.notebooks",
-          "name": "Notebooks",
+          "id": "thinkubeNotebooks.servers",
+          "name": "Servers",
           "icon": "media/tk_docs.svg",
           "contextualTitle": "Thinkube Notebooks"
         }
       ]
+    },
+    "customEditors": [
+      {
+        "viewType": "thinkubeNotebook.editor",
+        "displayName": "Thinkube Notebook (on a notebook server)",
+        "selector": [
+          {
+            "filenamePattern": "**/thinkube-ai/notebooks/**/*.ipynb"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "configurationDefaults": {
+      "workbench.editorAssociations": {
+        "**/thinkube-ai/notebooks/**/*.ipynb": "thinkubeNotebook.editor"
+      }
     }
   },
   "scripts": {

@@ -1,24 +1,26 @@
 # Thinkube Notebook View
 
-Shows a notebook from Thinkube Notebooks in a Thinkube IDE editor tab, manages the notebook server from a side bar, and lets Claude Code open a notebook from the terminal.
+Shows a notebook from Thinkube Notebooks in a Thinkube IDE editor tab on the notebook server of your choice, manages the notebook servers of every node from a side bar, and lets Claude Code open a notebook from the terminal.
 
 ## What it does
 
-- **A notebook in a tab.** The tab frames the notebook's own page on the notebook server, signed in, on the kernel it already has: by default the single-document page (one notebook, its toolbar, its kernel), or the whole of JupyterLab with the `page` setting. Edits and outputs made by Claude Code appear in it as they happen, because it shows the same shared document.
-- **A side bar.** The *Thinkube Notebooks* icon in the activity bar opens two views. *Server*: the notebook server with its node, CPU, memory and GPUs, buttons to start it (node and sizes are asked for), stop it, or open JupyterLab in a tab; and the servers of unattended runs, which can be cancelled. *Notebooks*: the tabs open in this window, the kernels running on the server (interrupt, restart, save and shut down), and every notebook in the notebooks folder; a click opens it in a tab.
+- **A notebook in a tab.** The tab frames the notebook's own page on one notebook server, signed in, on the kernel it already has: by default the single-document page (one notebook, its toolbar, its kernel), or the whole of JupyterLab with the `page` setting. Edits and outputs made by Claude Code appear in it as they happen, because it shows the same shared document. The tab's title names the node the notebook runs on.
+- **One server per node.** Each node can run one notebook server, and several nodes can run theirs at the same time. All of them see the same notebooks folder; a notebook's kernel runs on the server it was opened on.
+- **The side bar.** The *Thinkube Notebooks* icon in the activity bar opens the *Servers* view: one row per node, running or stopped, with the CPU, memory and GPUs it runs with or starts with. A stopped node has *Start*, which uses the node's defaults from thinkube-control's JupyterHub settings page; a running one has *Open JupyterLab* and *Stop*. The notebooks open on a running server are listed under it, with *Interrupt*, *Restart* and *Save and shut down*; a click opens the notebook in a tab. The Hub's default server and unattended runs appear while they run.
+- **The notebooks folder in the Explorer.** The workspace folder *Notebooks* is the notebooks folder. Double-clicking a notebook there opens it in a tab on a running server instead of VS Code's own notebook editor: the server chosen last for that notebook, else the only one running, else the one you pick. Right-click, *Run on server…*, lists the running servers.
 - **The clipboard works.** VS Code's Simple Browser withholds clipboard permission from what it frames, so copying out of a framed notebook fails. This tab passes the permission on.
-- **One command opens it.** `tk-notebook-open <path>` in the IDE terminal opens the tab in the IDE window you used last; Claude Code runs it after `jupyter_use_notebook`. Each window's extension listens on its own loopback port and records it, with the time the window was last focused, under `~/.local/share/thinkube-notebook-view/hosts/`.
+- **One command opens it.** `tk-notebook-open [--node <node>] <path>` in the IDE terminal opens the tab in the IDE window you used last; Claude Code runs the command `jupyter_use_notebook` returns. Without `--node` the server with the notebook's kernel open is used, else the only server running. Each window's extension listens on its own loopback port and records it, with the time the window was last focused, under `~/.local/share/thinkube-notebook-view/hosts/`.
 
 ## Use
-
-From the Command Palette: **Thinkube Notebooks: Open notebook in a tab**, then a path under the notebooks folder or an address.
 
 From a terminal:
 
 ```bash
-tk-notebook-open examples/research-assistant/00-platform-validation.ipynb
-tk-notebook-open https://notebooks.example.com/user/thinkube/lab/tree/thinkube/notebooks/scratch/a.ipynb
+tk-notebook-open --node tkamd1 examples/research-assistant/00-platform-validation.ipynb
+tk-notebook-open https://notebooks.example.com/user/thinkube/tkamd1/notebooks/thinkube/notebooks/scratch/a.ipynb
 ```
+
+From the Command Palette: **Thinkube Notebooks: Open notebook in a tab**, then a path under the notebooks folder or an address.
 
 The tab's title bar has *Reload* and *Open in the browser*. Tabs come back after a window reload.
 
@@ -27,15 +29,16 @@ The tab's title bar has *Reload* and *Open in the browser*. Tabs come back after
 | Setting | Meaning |
 |---|---|
 | `thinkubeNotebookView.page` | `notebook` (default): the single-document page. `lab`: the whole of JupyterLab. An address given in the other form is rewritten to the chosen page. |
-| `thinkubeNotebookView.baseUrl` | Address a notebook path is appended to. Empty: `https://notebooks.<DOMAIN_NAME>/user/<user>/<page route>/thinkube/notebooks/`, with `DOMAIN_NAME` from the environment or `~/.env`. |
 | `thinkubeNotebookView.controlUrl` | Address of thinkube-control. Empty: `thinkube-cicd.apiUrl`, or `https://control.<DOMAIN_NAME>`. |
-| `thinkubeNotebookView.apiToken` | thinkube-control API token (`tk_…`) for the side bar. Empty: `thinkube-cicd.apiToken`, which the platform writes into the IDE's settings. |
+| `thinkubeNotebookView.apiToken` | thinkube-control API token (`tk_…`). Empty: `thinkube-cicd.apiToken`, which the platform writes into the IDE's settings. |
+
+The extension also sets `workbench.editorAssociations` so notebooks under the notebooks folder open with it.
 
 ## Requirements
 
-The side bar needs a thinkube-control API token; the platform's IDE already has one.
-
-The notebook server must allow being framed by the IDE; Thinkube's JupyterHub sets `frame-ancestors 'self' https://ide.<domain>` on every single-user server.
+- The side bar and server choice need a thinkube-control API token; the platform's IDE already has one.
+- The notebooks folder is mounted in the IDE at `/home/thinkube/thinkube-ai/notebooks`; notebook servers see it at `thinkube/notebooks` under their home.
+- The notebook servers must allow being framed by the IDE; Thinkube's JupyterHub sets `frame-ancestors 'self' https://ide.<domain>` on every single-user server.
 
 ## Develop
 

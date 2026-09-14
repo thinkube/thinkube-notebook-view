@@ -1,16 +1,23 @@
 #!/bin/sh
 # Open a notebook in a Thinkube IDE tab, in the IDE window used most recently.
-#   tk-notebook-open <notebook path under the notebooks folder | address>
+#   tk-notebook-open [--node <node>] <notebook path under the notebooks folder | address>
+# --node names the node whose notebook server the notebook opens on ('default'
+# for the Hub's default server). Without it, the server with the notebook's
+# kernel open is used, else the only server running.
 # Each IDE window's Thinkube Notebook View extension listens on its own loopback
 # port and records it under ~/.local/share/thinkube-notebook-view/hosts.
-if [ -z "$1" ]; then
-  echo "usage: tk-notebook-open <notebook path or address>" >&2
-  exit 2
-fi
-exec python3 - "$1" <<'PYEOF'
-import glob, json, os, sys, urllib.parse, urllib.request
+exec python3 - "$@" <<'PYEOF'
+import glob, json, os, sys, urllib.error, urllib.parse, urllib.request
 
-target = sys.argv[1]
+args = sys.argv[1:]
+node = None
+if len(args) >= 2 and args[0] == "--node":
+    node, args = args[1], args[2:]
+if len(args) != 1:
+    print("usage: tk-notebook-open [--node <node>] <notebook path or address>", file=sys.stderr)
+    sys.exit(2)
+target = args[0]
+
 hosts_dir = os.path.expanduser("~/.local/share/thinkube-notebook-view/hosts")
 hosts = []
 for record in glob.glob(os.path.join(hosts_dir, "*.json")):
@@ -27,13 +34,20 @@ if not hosts:
     print("No Thinkube IDE window is listening; the Thinkube Notebook View extension is not running.", file=sys.stderr)
     sys.exit(1)
 hosts.sort(key=lambda h: h.get("focused_at", 0), reverse=True)
+query = {"target": target}
+if node:
+    query["node"] = node
 errors = []
 for host in hosts:
-    url = f"http://127.0.0.1:{host['port']}/open?" + urllib.parse.urlencode({"target": target})
+    url = f"http://127.0.0.1:{host['port']}/open?" + urllib.parse.urlencode(query)
     try:
-        with urllib.request.urlopen(url, timeout=10) as response:
+        with urllib.request.urlopen(url, timeout=30) as response:
             print(response.read().decode())
             sys.exit(0)
+    except urllib.error.HTTPError as e:
+        # The window answered: its refusal (no server, or several to choose from) is the answer.
+        print(e.read().decode() or str(e), file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
         errors.append(f"pid {host.get('pid')} port {host.get('port')}: {e}")
 print("No IDE window answered: " + "; ".join(errors), file=sys.stderr)
