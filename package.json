@@ -2,7 +2,7 @@
   "name": "thinkube-notebook-view",
   "displayName": "Thinkube Notebook View",
   "description": "Shows a Thinkube Notebooks notebook in an editor tab on the notebook server of your choice, manages the notebook servers of every node from a side bar, and lets Claude Code open a notebook from the terminal.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "publisher": "thinkube",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -100,6 +100,33 @@
         "title": "Cancel unattended run",
         "category": "Thinkube Notebooks",
         "icon": "$(close)"
+      },
+      {
+        "command": "thinkube-notebook-view.openNotebookFile",
+        "title": "Open on a notebook server",
+        "category": "Thinkube Notebooks"
+      },
+      {
+        "command": "thinkube-notebook-view.newNotebook",
+        "title": "New notebook",
+        "category": "Thinkube Notebooks",
+        "icon": "$(new-file)"
+      },
+      {
+        "command": "thinkube-notebook-view.newFolder",
+        "title": "New folder",
+        "category": "Thinkube Notebooks",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "thinkube-notebook-view.renameEntry",
+        "title": "Rename…",
+        "category": "Thinkube Notebooks"
+      },
+      {
+        "command": "thinkube-notebook-view.deleteEntry",
+        "title": "Delete",
+        "category": "Thinkube Notebooks"
       }
     ],
     "menus": {
@@ -119,6 +146,21 @@
         {
           "command": "thinkube-notebook-view.refresh",
           "when": "view == thinkubeNotebooks.servers",
+          "group": "navigation@9"
+        },
+        {
+          "command": "thinkube-notebook-view.newNotebook",
+          "when": "view == thinkubeNotebooks.notebooks",
+          "group": "navigation@1"
+        },
+        {
+          "command": "thinkube-notebook-view.newFolder",
+          "when": "view == thinkubeNotebooks.notebooks",
+          "group": "navigation@2"
+        },
+        {
+          "command": "thinkube-notebook-view.refresh",
+          "when": "view == thinkubeNotebooks.notebooks",
           "group": "navigation@9"
         }
       ],
@@ -157,6 +199,41 @@
           "command": "thinkube-notebook-view.shutdownKernel",
           "when": "view == thinkubeNotebooks.servers && viewItem == kernel",
           "group": "inline@3"
+        },
+        {
+          "command": "thinkube-notebook-view.runOnServer",
+          "when": "view == thinkubeNotebooks.notebooks && viewItem == notebook",
+          "group": "1_open@1"
+        },
+        {
+          "command": "thinkube-notebook-view.newNotebook",
+          "when": "view == thinkubeNotebooks.notebooks && viewItem == folder",
+          "group": "inline@1"
+        },
+        {
+          "command": "thinkube-notebook-view.newFolder",
+          "when": "view == thinkubeNotebooks.notebooks && viewItem == folder",
+          "group": "inline@2"
+        },
+        {
+          "command": "thinkube-notebook-view.newNotebook",
+          "when": "view == thinkubeNotebooks.notebooks && viewItem == folder",
+          "group": "2_new@1"
+        },
+        {
+          "command": "thinkube-notebook-view.newFolder",
+          "when": "view == thinkubeNotebooks.notebooks && viewItem == folder",
+          "group": "2_new@2"
+        },
+        {
+          "command": "thinkube-notebook-view.renameEntry",
+          "when": "view == thinkubeNotebooks.notebooks",
+          "group": "7_modification@1"
+        },
+        {
+          "command": "thinkube-notebook-view.deleteEntry",
+          "when": "view == thinkubeNotebooks.notebooks",
+          "group": "7_modification@2"
         }
       ],
       "explorer/context": [
@@ -210,6 +287,18 @@
         {
           "command": "thinkube-notebook-view.cancelRun",
           "when": "false"
+        },
+        {
+          "command": "thinkube-notebook-view.openNotebookFile",
+          "when": "false"
+        },
+        {
+          "command": "thinkube-notebook-view.renameEntry",
+          "when": "false"
+        },
+        {
+          "command": "thinkube-notebook-view.deleteEntry",
+          "when": "false"
         }
       ]
     },
@@ -255,6 +344,12 @@
         {
           "id": "thinkubeNotebooks.servers",
           "name": "Servers",
+          "icon": "media/tk_docs.svg",
+          "contextualTitle": "Thinkube Notebooks"
+        },
+        {
+          "id": "thinkubeNotebooks.notebooks",
+          "name": "Notebooks",
           "icon": "media/tk_docs.svg",
           "contextualTitle": "Thinkube Notebooks"
         }

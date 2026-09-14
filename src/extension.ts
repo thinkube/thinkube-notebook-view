@@ -11,10 +11,11 @@
  * holds, which is what VS Code's Simple Browser withholds; copying out of the
  * notebook works.
  *
- * The notebooks folder is a workspace folder in the IDE. A notebook there
- * opens in a tab on a running server: by double-click (a custom editor that
- * takes the place of VS Code's own notebook editor for that folder) or by
- * "Run on server…" in the Explorer's context menu.
+ * The notebooks folder is mounted in the IDE. The side bar's Notebooks view
+ * shows it; a click on a notebook there opens it in a tab on a running
+ * server. It is also a workspace folder, where a double-click (a custom
+ * editor that takes the place of VS Code's own notebook editor for that
+ * folder) or "Run on server…" in the Explorer's context menu does the same.
  *
  * The side bar reads and drives the servers through thinkube-control (see
  * control.ts and sidebar.ts).
@@ -30,6 +31,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import { Control, ControlError, controlConfigured, HUB_DEFAULT, ServersStatus } from './control';
+import { emptyNotebook, NotebookEntry, NotebookTreeView } from './notebookTree';
 import { jobIdOf, kernelOf, serverNodeOf, ServersView, SidebarState } from './sidebar';
 
 const VIEW_TYPE = 'thinkubeNotebook';
@@ -399,6 +401,65 @@ async function pickServer(current: ServersStatus, notebookPath: string): Promise
     return picked?.node;
 }
 
+/**
+ * Open a notebook of the notebooks folder on a server with as few questions
+ * as possible: the server chosen last for it while it runs, else the one
+ * with its kernel open, else the only one running; several are offered to
+ * choose from, and with none running the nodes are offered to start one on.
+ */
+async function openFileOnServer(rel: string): Promise<void> {
+    try {
+        const current = await status();
+        const running = runningServers(current);
+        let node: string | undefined;
+        if (running.length === 0) {
+            const picked = await vscode.window.showQuickPick(
+                current.servers.map((s) => ({
+                    label: s.node,
+                    description: `starts with ${s.defaults.cpu_cores} CPU · ${s.defaults.memory_gb} GB · ${s.defaults.gpus} GPU`,
+                })),
+                { title: `No notebook server is running. Start one to open ${path.basename(rel)} on`, placeHolder: 'A node' },
+            );
+            if (!picked || !(await startServer(picked.label))) {
+                return;
+            }
+            node = picked.label;
+        } else {
+            const remembered = memory.get<string>(`server:${rel}`);
+            const withKernel = current.servers.filter((s) => s.state === 'running' && s.kernels?.some((k) => k.notebook_path === rel)).map((s) => s.node);
+            node = remembered && running.includes(remembered)
+                ? remembered
+                : withKernel.length === 1
+                    ? withKernel[0]
+                    : running.length === 1
+                        ? running[0]
+                        : await pickServer(current, rel);
+        }
+        if (node) {
+            await memory.update(`server:${rel}`, node);
+            openUrl(notebookUrl(serverBase(node, sidebar.snapshot.status), rel));
+        }
+    } catch (e) {
+        vscode.window.showErrorMessage(`Thinkube Notebooks: ${(e as Error).message}`);
+    }
+}
+
+/** The tabs showing a notebook at a path, or any notebook under it when the path is a folder. */
+function tabsUnder(rel: string): [string, vscode.WebviewPanel][] {
+    return [...panels].filter(([url]) => {
+        const shown = notebookPathOfUrl(url);
+        return shown !== undefined && (shown === rel || shown.startsWith(rel + '/'));
+    });
+}
+
+/** Where a notebook's kernel runs now, as the Notebooks view describes it: for example 'tkspark · idle'. */
+function openOn(rel: string): string | undefined {
+    const places = (sidebar?.snapshot.status?.servers ?? []).flatMap((s) =>
+        (s.kernels ?? []).filter((k) => k.notebook_path === rel).map((k) => `${s.node}${k.execution_state ? ` · ${k.execution_state}` : ''}`),
+    );
+    return places.length ? places.join(', ') : undefined;
+}
+
 /** Brings the tabs back after a window reload: VS Code recreates each panel and hands over the address it was on. */
 class PanelRestorer implements vscode.WebviewPanelSerializer<{ url?: string }> {
     async deserializeWebviewPanel(panel: vscode.WebviewPanel, state: { url?: string } | undefined): Promise<void> {
@@ -673,6 +734,40 @@ function registerSidebar(context: vscode.ExtensionContext): void {
         }),
     );
 
+    const notebooks = new NotebookTreeView(vscode.Uri.file(NOTEBOOKS_MOUNT), openOn);
+    const notebookTree = vscode.window.createTreeView('thinkubeNotebooks.notebooks', { treeDataProvider: notebooks, showCollapseAll: true });
+    context.subscriptions.push(notebookTree, notebooks.watch());
+    // The folder is shared with servers on other nodes, whose writes raise no file event here.
+    context.subscriptions.push(notebookTree.onDidChangeVisibility((e) => e.visible && notebooks.refresh()));
+    context.subscriptions.push(sidebar.onDidChange(() => notebookTree.visible && notebooks.refresh()));
+    const notebooksTimer = setInterval(() => notebookTree.visible && !tree.visible && notebooks.refresh(), POLL_MS);
+    context.subscriptions.push({ dispose: () => clearInterval(notebooksTimer) });
+
+    /** The folder a new entry goes in: the folder given or selected, the folder of the file given or selected, else the top. */
+    const targetFolder = (item?: NotebookEntry): vscode.Uri => {
+        const chosen = item ?? notebookTree.selection[0];
+        if (!chosen) {
+            return vscode.Uri.file(NOTEBOOKS_MOUNT);
+        }
+        return chosen.isFolder ? chosen.uri : vscode.Uri.file(path.dirname(chosen.uri.fsPath));
+    };
+    const askName = (prompt: string, folder: vscode.Uri, value = '') =>
+        vscode.window.showInputBox({
+            prompt,
+            value,
+            validateInput: async (name) => {
+                if (!name.trim() || /[\\/]/.test(name) || name.startsWith('.')) {
+                    return 'A name without slashes, not starting with a dot';
+                }
+                try {
+                    await vscode.workspace.fs.stat(vscode.Uri.joinPath(folder, name.trim()));
+                    return `${name.trim()} already exists here`;
+                } catch {
+                    return undefined;
+                }
+            },
+        });
+
     const withKernel = (title: string, act: (node: string, notebookPath: string) => Promise<unknown>) => (item: unknown) => {
         const kernel = kernelOf(item);
         if (kernel) {
@@ -681,7 +776,101 @@ function registerSidebar(context: vscode.ExtensionContext): void {
     };
 
     context.subscriptions.push(
-        vscode.commands.registerCommand('thinkube-notebook-view.refresh', () => sidebar.refresh()),
+        vscode.commands.registerCommand('thinkube-notebook-view.refresh', () => {
+            notebooks.refresh();
+            return sidebar.refresh();
+        }),
+        vscode.commands.registerCommand('thinkube-notebook-view.openNotebookFile', (entry: NotebookEntry) => openFileOnServer(entry.rel)),
+        vscode.commands.registerCommand('thinkube-notebook-view.newNotebook', async (item?: NotebookEntry) => {
+            const folder = targetFolder(item);
+            const name = await askName('New notebook name', folder, 'Untitled.ipynb');
+            if (!name) {
+                return;
+            }
+            const file = vscode.Uri.joinPath(folder, name.trim().endsWith('.ipynb') ? name.trim() : `${name.trim()}.ipynb`);
+            try {
+                await vscode.workspace.fs.writeFile(file, emptyNotebook());
+            } catch (e) {
+                vscode.window.showErrorMessage(`Thinkube Notebooks: could not create ${file.fsPath}: ${(e as Error).message}`);
+                return;
+            }
+            notebooks.refresh();
+            const entry = notebooks.entry(file, false);
+            setTimeout(() => void notebookTree.reveal(entry, { select: true, focus: false }).then(undefined, () => undefined), 400);
+            if (sidebar.snapshot.status && runningServers(sidebar.snapshot.status).length > 0) {
+                await openFileOnServer(entry.rel);
+            }
+        }),
+        vscode.commands.registerCommand('thinkube-notebook-view.newFolder', async (item?: NotebookEntry) => {
+            const folder = targetFolder(item);
+            const name = await askName('New folder name', folder);
+            if (!name) {
+                return;
+            }
+            try {
+                await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(folder, name.trim()));
+            } catch (e) {
+                vscode.window.showErrorMessage(`Thinkube Notebooks: could not create the folder: ${(e as Error).message}`);
+                return;
+            }
+            notebooks.refresh();
+        }),
+        vscode.commands.registerCommand('thinkube-notebook-view.renameEntry', async (item?: NotebookEntry) => {
+            const entry = item ?? notebookTree.selection[0];
+            if (!entry) {
+                return;
+            }
+            const folder = vscode.Uri.file(path.dirname(entry.uri.fsPath));
+            const name = await askName(`Rename ${entry.name}`, folder, entry.name);
+            if (!name || name.trim() === entry.name) {
+                return;
+            }
+            const target = vscode.Uri.joinPath(folder, name.trim());
+            try {
+                await vscode.workspace.fs.rename(entry.uri, target);
+            } catch (e) {
+                vscode.window.showErrorMessage(`Thinkube Notebooks: could not rename ${entry.name}: ${(e as Error).message}`);
+                return;
+            }
+            const newRel = notebooks.entry(target, entry.isFolder).rel;
+            const remembered = memory.get<string>(`server:${entry.rel}`);
+            if (remembered) {
+                await memory.update(`server:${newRel}`, remembered);
+                await memory.update(`server:${entry.rel}`, undefined);
+            }
+            // A tab on the old path would show a notebook that is no longer there: it moves to the new path on the same server.
+            for (const [url, panel] of tabsUnder(entry.rel)) {
+                const node = nodeOfUrl(url) ?? HUB_DEFAULT;
+                const moved = newRel + (notebookPathOfUrl(url) ?? '').slice(entry.rel.length);
+                panel.dispose();
+                openUrl(notebookUrl(serverBase(node, sidebar.snapshot.status), moved));
+            }
+            notebooks.refresh();
+        }),
+        vscode.commands.registerCommand('thinkube-notebook-view.deleteEntry', async (item?: NotebookEntry) => {
+            const entry = item ?? notebookTree.selection[0];
+            if (!entry) {
+                return;
+            }
+            const confirm = await vscode.window.showWarningMessage(
+                `Delete ${entry.rel}?`,
+                { modal: true, detail: entry.isFolder ? 'The folder and everything in it are deleted for good; the notebooks folder has no trash.' : 'The file is deleted for good; the notebooks folder has no trash.' },
+                'Delete',
+            );
+            if (confirm !== 'Delete') {
+                return;
+            }
+            try {
+                await vscode.workspace.fs.delete(entry.uri, { recursive: true, useTrash: false });
+            } catch (e) {
+                vscode.window.showErrorMessage(`Thinkube Notebooks: could not delete ${entry.rel}: ${(e as Error).message}`);
+                return;
+            }
+            for (const [, panel] of tabsUnder(entry.rel)) {
+                panel.dispose();
+            }
+            notebooks.refresh();
+        }),
         vscode.commands.registerCommand('thinkube-notebook-view.startServer', (item: unknown) => {
             const node = serverNodeOf(item);
             if (node && node !== HUB_DEFAULT) {
@@ -707,8 +896,8 @@ function registerSidebar(context: vscode.ExtensionContext): void {
                 vscode.window.showErrorMessage(`Thinkube Notebooks: ${(e as Error).message}`);
             }
         }),
-        vscode.commands.registerCommand('thinkube-notebook-view.runOnServer', async (uri?: vscode.Uri) => {
-            const target = uri ?? vscode.window.activeTextEditor?.document.uri;
+        vscode.commands.registerCommand('thinkube-notebook-view.runOnServer', async (arg?: vscode.Uri | NotebookEntry) => {
+            const target = (arg instanceof vscode.Uri ? arg : arg?.uri) ?? vscode.window.activeTextEditor?.document.uri;
             if (!target || !target.fsPath.startsWith(NOTEBOOKS_MOUNT + '/')) {
                 vscode.window.showWarningMessage(`Thinkube Notebooks: only notebooks under ${NOTEBOOKS_MOUNT} run on a notebook server.`);
                 return;
