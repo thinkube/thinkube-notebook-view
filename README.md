@@ -40,6 +40,7 @@ The extension also sets `workbench.editorAssociations` so notebooks under the no
 - The side bar and server choice need a thinkube-control API token; the platform's IDE already has one.
 - The notebooks folder is mounted in the IDE at `/home/thinkube/thinkube-ai/notebooks`; notebook servers see it at `thinkube/notebooks` under their home.
 - The notebook servers must allow being framed by the IDE; Thinkube's JupyterHub sets `frame-ancestors 'self' https://ide.<domain>` on every single-user server.
+- The first time the browser opens a notebook on a server, the server sends it through the Hub and Keycloak to sign in. Thinkube's JupyterHub skips its own sign-in page (`auto_login`), so with a Keycloak session this happens by redirects inside the tab. Keycloak's own sign-in page refuses to be framed: when the Keycloak session has ended, the tab shows "refused to connect"; *Open in the browser* signs in, and *Reload* then shows the notebook.
 
 ## Develop
 
