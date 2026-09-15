@@ -102,21 +102,25 @@ env -u CODE_SERVER_PARENT_PID -u VSCODE_IPC_HOOK_CLI -u VSCODE_IPC_HOOK \
     "$CODE_SERVER" --install-extension "$VSIX" --force
 rm -f "$VSIX"
 
-echo "▸ remove the other installed copies…"
-CURRENT="${EXT_ROOT}/${PUBLISHER}.${NAME}-${VERSION}"
+# A hook step that repoints something at the new version runs before the
+# prune below: a prune that outruns it leaves the old path dangling.
+hook post-install
+
+# A window that has not reloaded still runs an older build, and removing it
+# under the live extension host breaks every lazy require, which kills work in
+# flight. Keep the last ten versions, never remove one a live process is
+# reading, and remove the unversioned directory older installs left behind.
+echo "▸ remove stale copies (keeping the last ten, and any version in use)…"
+KEEP="$(ls -d "${EXT_ROOT}/${PUBLISHER}.${NAME}-"* 2>/dev/null | sort -V | tail -10 || true)"
+# `|| true`: with no process inside any version grep matches nothing and exits
+# 1, which under pipefail would end the script before the release is recorded.
 IN_USE="$(ls -l /proc/*/cwd /proc/*/exe 2>/dev/null | grep -o "${PUBLISHER}\.${NAME}-[0-9][0-9.]*" | sort -u || true)"
+for v in $IN_USE; do KEEP="${KEEP}
+${EXT_ROOT}/${v}"; done
 for d in "${EXT_ROOT}/${PUBLISHER}.${NAME}-"* "${EXT_ROOT}/${NAME}"; do
   [ -e "$d" ] || continue
-  [ "$d" = "$CURRENT" ] && continue
-  if echo "$IN_USE" | grep -qx "$(basename "$d")"; then
-    echo "  = $(basename "$d") is in use"
-    continue
-  fi
-  rm -rf "$d"
-  echo "  − $(basename "$d")"
+  echo "$KEEP" | grep -qx "$d" || { rm -rf "$d" && echo "  − $(basename "$d")"; }
 done
-
-hook post-install
 
 if [ "$BUMP" = 1 ]; then
   echo "▸ record the release…"
