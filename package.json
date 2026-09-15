@@ -2,7 +2,7 @@
   "name": "thinkube-notebook-view",
   "displayName": "Thinkube Notebook View",
   "description": "Shows a Thinkube Notebooks notebook in an editor tab on the notebook server of your choice, manages the notebook servers of every node from a side bar, and lets Claude Code open a notebook from the terminal.",
-  "version": "0.4.0",
+  "version": "0.1.0",
   "publisher": "thinkube",
   "license": "Apache-2.0",
   "icon": "icon.png",
@@ -377,12 +377,13 @@
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "package": "vsce package"
+    "package": "vsce package",
+    "deploy": "scripts/deploy.sh"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
+    "@types/node": "^24.0.0",
     "@types/vscode": "^1.100.0",
-    "@vscode/vsce": "^3.0.0",
+    "@vscode/vsce": "^4.0.0",
     "typescript": "^5.8.3"
   }
 }
