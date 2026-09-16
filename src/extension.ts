@@ -223,6 +223,22 @@ ${lines.map((l) => `<p>${escapeHtml(l)}</p>`).join('\n')}
 </html>`;
 }
 
+/**
+ * The Thinkube Jupyter theme that matches the IDE's color theme: `light` for
+ * light and high-contrast light themes, `dark` for dark and high-contrast dark
+ * ones. The notebook page reads it from its address (thinkube-notebooks-theme).
+ */
+export function ideThemeFor(kind: vscode.ColorThemeKind): 'light' | 'dark' {
+    return kind === vscode.ColorThemeKind.Light || kind === vscode.ColorThemeKind.HighContrastLight ? 'light' : 'dark';
+}
+
+/** The address the frame loads: the tab's address with the IDE's theme as `tk-theme`. */
+export function themedUrl(url: string, theme: 'light' | 'dark'): string {
+    const address = new URL(url);
+    address.searchParams.set('tk-theme', theme);
+    return address.toString();
+}
+
 function frameHtml(url: string): string {
     const nonce = newNonce();
     return `<!DOCTYPE html>
@@ -236,7 +252,7 @@ function frameHtml(url: string): string {
 </style>
 </head>
 <body>
-<iframe src="${escapeHtml(url)}" allow="clipboard-read; clipboard-write; fullscreen; downloads"></iframe>
+<iframe src="${escapeHtml(themedUrl(url, ideThemeFor(vscode.window.activeColorTheme.kind)))}" allow="clipboard-read; clipboard-write; fullscreen; downloads"></iframe>
 <script nonce="${nonce}">acquireVsCodeApi().setState({ url: ${JSON.stringify(url)} });</script>
 </body>
 </html>`;
@@ -276,6 +292,12 @@ async function load(panel: vscode.WebviewPanel, url: string): Promise<void> {
             ['The notebook cannot be shown until the server runs.', `Notebook: ${titleFor(url)}`],
             canStart ? [{ action: 'start', label: `Start the server on ${node}` }, { action: 'reload', label: 'Reload' }] : [{ action: 'reload', label: 'Reload' }],
         );
+    }
+}
+
+function loadAllTabs(): void {
+    for (const [url, panel] of panels) {
+        void load(panel, url);
     }
 }
 
@@ -1055,6 +1077,9 @@ export function activate(context: vscode.ExtensionContext): void {
             supportsMultipleEditorsPerDocument: false,
         }),
     );
+
+    // A notebook page takes its theme when it loads, so a change of the IDE's theme reloads the tabs.
+    context.subscriptions.push(vscode.window.onDidChangeActiveColorTheme(() => loadAllTabs()));
 
     const server = startListener();
     context.subscriptions.push({ dispose: () => { server.close(); removeRecord(); } });
