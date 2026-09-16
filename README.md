@@ -45,12 +45,11 @@ The extension also sets `workbench.editorAssociations` so notebooks under the no
 ## Develop
 
 ```bash
-npm install
-npm run compile        # dist/extension.js
-npm run package        # thinkube-notebook-view-<version>.vsix
+npm run deploy                 # bump the patch version, build, package, install, commit and push
+npm run deploy -- --no-bump    # install the version in package.json
 ```
 
-The platform installs it by linking this folder into code-server's extensions directory and `bin/tk-notebook-open` into `~/.local/bin`.
+`npm run deploy` runs `scripts/deploy.sh`, the same script in every Thinkube extension; versions move only by its patch bump. The platform installs the extension from a clone of this repository with `scripts/deploy.sh --no-bump`, and the install points `~/.local/bin/tk-notebook-open` at the installed version.
 
 ## License
 

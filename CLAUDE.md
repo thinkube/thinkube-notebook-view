@@ -27,12 +27,14 @@ The notebooks folder is mounted in the IDE at `/home/thinkube/thinkube-ai/notebo
 - The extension never talks to JupyterHub directly; servers and kernels are read and driven through thinkube-control, which holds the Hub credentials.
 - Comments say what the code does and the constraints it serves, nothing about how it came to be.
 
-## Build and try
+## Deploy
 
 ```bash
-npm install && npm run compile
-code --install-extension "$(npm run -s package >/dev/null; ls *.vsix)"   # into the running IDE
+npm run deploy                 # bump the patch version, build, package, install into code-server, commit and push
+npm run deploy -- --no-bump    # install the version in package.json
 tk-notebook-open --node tkamd1 scratch/five-cells.ipynb
 ```
 
-The platform's install (`code-server/15_configure_environment.yaml` in the `thinkube` repository) links this folder into `~/.local/share/code-server/extensions/` and the helper into `~/.local/bin/`; the workspace folder comes from `code-server/templates/thinkube.code-workspace.j2`.
+`npm run deploy` runs `scripts/deploy.sh`, which is identical in every Thinkube extension repository; the master copy is `ansible/40_thinkube/core/code-server/files/extension-deploy.sh` in the `thinkube` repository. Versions stay on 0.1.x and move only by the script's patch bump; `package.json`'s version is never edited by hand. `scripts/deploy-hook.sh` holds this repository's own step: after the install it points `~/.local/bin/tk-notebook-open` at the installed version.
+
+The platform's install (`code-server/15_configure_environment.yaml` in the `thinkube` repository) clones this repository, refuses a `scripts/deploy.sh` that differs from the master copy, and runs `scripts/deploy.sh --no-bump`. The workspace folder comes from `code-server/templates/thinkube.code-workspace.j2`.
