@@ -1,9 +1,9 @@
 #!/bin/sh
 # Open a notebook in a Thinkube IDE tab, in the IDE window used most recently.
 #   tk-notebook-open [--node <node>] <notebook path under the notebooks folder | address>
-# --node names the node whose notebook server the notebook opens on ('default'
-# for the Hub's default server). Without it, the server with the notebook's
-# kernel open is used, else the only server running.
+# --node names the node whose notebook server the notebook opens on. Without
+# it, the server with the notebook's kernel open is used, else the only server
+# running.
 # Each IDE window's Thinkube Notebook View extension listens on its own loopback
 # port and records it under ~/.local/share/thinkube-notebook-view/hosts.
 exec python3 - "$@" <<'PYEOF'

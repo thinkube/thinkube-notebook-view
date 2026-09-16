@@ -30,7 +30,7 @@ import * as http from 'http';
 import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
-import { Control, ControlError, controlConfigured, HUB_DEFAULT, ServersStatus } from './control';
+import { Control, ControlError, controlConfigured, ServersStatus } from './control';
 import { emptyNotebook, NotebookEntry, NotebookTreeView } from './notebookTree';
 import { jobIdOf, kernelOf, serverNodeOf, ServersView, SidebarState } from './sidebar';
 
@@ -97,12 +97,12 @@ function route(): string {
 }
 
 /**
- * A notebook page on a notebook server: the user's prefix, the server's name
- * when it is a named server (none for the Hub's default server), the page's
- * route, and the notebook's path under the server's home.
+ * A notebook page on a node's notebook server: the user's prefix, the
+ * server's name (the node's), the page's route, and the notebook's path under
+ * the server's home.
  */
-const NOTEBOOK_PAGE = /^(https?:\/\/[^/]+\/user\/[^/]+\/)(?:([^/]+)\/)??(lab\/(?:workspaces\/[^/]+\/)?tree|notebooks)\/(.+\.ipynb)(.*)$/i;
-const SERVER_ROOT = /^https?:\/\/[^/]+\/user\/[^/]+\/(?:([^/]+)\/)??(?:lab|notebooks|tree)\b/i;
+const NOTEBOOK_PAGE = /^(https?:\/\/[^/]+\/user\/[^/]+\/)([^/]+)\/(lab\/(?:workspaces\/[^/]+\/)?tree|notebooks)\/(.+\.ipynb)(.*)$/i;
+const SERVER_ROOT = /^https?:\/\/[^/]+\/user\/[^/]+\/([^/]+)\/(?:lab|notebooks|tree)\b/i;
 
 /**
  * An address on the notebook server, rewritten to the chosen page. The two
@@ -114,17 +114,12 @@ export function applyPage(url: string): string {
     if (!match) {
         return url;
     }
-    return `${match[1]}${match[2] ? match[2] + '/' : ''}${route()}${match[4]}${match[5]}`;
+    return `${match[1]}${match[2]}/${route()}${match[4]}${match[5]}`;
 }
 
-/** The node whose server an address is on: the named server's name, or 'default' for the Hub's default server. */
+/** The node whose server an address is on. */
 export function nodeOfUrl(url: string): string | undefined {
-    const page = url.match(NOTEBOOK_PAGE);
-    if (page) {
-        return page[2] || HUB_DEFAULT;
-    }
-    const root = url.match(SERVER_ROOT);
-    return root ? root[1] || HUB_DEFAULT : undefined;
+    return url.match(NOTEBOOK_PAGE)?.[2] ?? url.match(SERVER_ROOT)?.[1];
 }
 
 /** The notebook's path under the notebooks folder, when the address is a notebook page there. */
@@ -150,20 +145,22 @@ export function relativeNotebookPath(target: string): string {
     return rel;
 }
 
-/** The address of a server's root, `https://notebooks.<domain>/user/<user>/<server>/`, from the servers' status or built. */
-function serverBase(node: string, status?: ServersStatus): string {
-    const known = node === HUB_DEFAULT
-        ? status?.other_servers.find((s) => s.kind === 'hub-default')?.url
-        : status?.servers.find((s) => s.node === node)?.url;
-    if (known) {
-        return known.endsWith('/') ? known : known + '/';
+/** The address of a node server's root, `https://notebooks.<domain>/user/<user>/<node>/`, as thinkube-control reports it while the server runs. */
+function serverBase(node: string, status: ServersStatus | undefined): string {
+    const url = status?.servers.find((s) => s.node === node)?.url;
+    if (!url) {
+        throw new ControlError(`The notebook server on ${node} is not running, so it has no address; start it first.`);
     }
-    const domain = platformDomain();
-    if (!domain) {
-        throw new Error('DOMAIN_NAME is not known');
+    return url.endsWith('/') ? url : url + '/';
+}
+
+/** The same page on the same server, for a notebook at another path. */
+export function withNotebookPath(url: string, notebookPath: string): string {
+    const match = url.match(NOTEBOOK_PAGE);
+    if (!match) {
+        throw new ControlError(`${url} is not a notebook page on a node's server`);
     }
-    const user = process.env.JUPYTERHUB_USER || os.userInfo().username;
-    return `https://notebooks.${domain}/user/${user}/${node === HUB_DEFAULT ? '' : node + '/'}`;
+    return `${match[1]}${match[2]}/${match[3]}/${NOTEBOOKS_FOLDER}${relativeNotebookPath(notebookPath).split('/').map(encodeURIComponent).join('/')}`;
 }
 
 export function notebookUrl(base: string, notebookPath: string): string {
@@ -174,16 +171,12 @@ function titleFor(url: string): string {
     const last = decodeURIComponent(url.replace(/[?#].*$/, '').split('/').pop() || '');
     const node = nodeOfUrl(url);
     const name = /\.ipynb$/i.test(last) ? last : 'JupyterLab';
-    return node && node !== HUB_DEFAULT ? `${name} · ${node}` : name;
+    return node ? `${name} · ${node}` : name;
 }
 
-/** The servers running now that notebooks can be opened on, as node names ('default' for the Hub's default server). */
+/** The nodes whose notebook servers are running now. */
 function runningServers(status: ServersStatus): string[] {
-    const nodes = status.servers.filter((s) => s.state === 'running').map((s) => s.node);
-    if (status.other_servers.some((s) => s.kind === 'hub-default' && s.state === 'running')) {
-        nodes.push(HUB_DEFAULT);
-    }
-    return nodes;
+    return status.servers.filter((s) => s.state === 'running').map((s) => s.node);
 }
 
 function hasTab(node: string, notebookPath: string): boolean {
@@ -276,10 +269,10 @@ async function load(panel: vscode.WebviewPanel, url: string): Promise<void> {
     const state = await probeServer(url);
     if (state === 'down' && panels.get(url) === panel) {
         const node = nodeOfUrl(url);
-        const canStart = controlConfigured() && node && node !== HUB_DEFAULT;
+        const canStart = controlConfigured() && node;
         panel.webview.html = messageHtml(
             url,
-            `No notebook server is running${node && node !== HUB_DEFAULT ? ` on ${node}` : ''}`,
+            `No notebook server is running${node ? ` on ${node}` : ''}`,
             ['The notebook cannot be shown until the server runs.', `Notebook: ${titleFor(url)}`],
             canStart ? [{ action: 'start', label: `Start the server on ${node}` }, { action: 'reload', label: 'Reload' }] : [{ action: 'reload', label: 'Reload' }],
         );
@@ -362,7 +355,7 @@ export async function openNotebook(target: string, node?: string): Promise<strin
     }
     const rel = relativeNotebookPath(trimmed);
     if (!controlConfigured()) {
-        return openUrl(notebookUrl(serverBase(node ?? HUB_DEFAULT), rel));
+        throw new ControlError('No thinkube-control token: set thinkubeNotebookView.apiToken. A notebook path opens on a server that thinkube-control reports.');
     }
     const current = await status();
     if (node) {
@@ -388,7 +381,7 @@ async function pickServer(current: ServersStatus, notebookPath: string): Promise
         const server = current.servers.find((s) => s.node === node);
         const open = server?.kernels?.some((k) => k.notebook_path === notebookPath);
         return {
-            label: node === HUB_DEFAULT ? 'Hub default server' : node,
+            label: node,
             node,
             description: server ? `${server.cpu_cores} CPU · ${server.memory_gb} GB · ${server.gpus} GPU${open ? ' · notebook already open here' : ''}` : undefined,
         };
@@ -531,7 +524,7 @@ class NotebookEditorProvider implements vscode.CustomReadonlyEditorProvider {
                     undefined,
                     'Choose a server',
                     [`${rel} opens on a running notebook server.`],
-                    running.map((n) => ({ action: `open:${n}`, label: n === HUB_DEFAULT ? 'Hub default server' : n })),
+                    running.map((n) => ({ action: `open:${n}`, label: n })),
                 );
             }
         };
@@ -556,7 +549,7 @@ class NotebookEditorProvider implements vscode.CustomReadonlyEditorProvider {
         });
 
         if (!controlConfigured()) {
-            openOn(HUB_DEFAULT);
+            panel.webview.html = messageHtml(undefined, 'No thinkube-control token', ['Set thinkubeNotebookView.apiToken; a notebook opens on a server that thinkube-control reports.']);
             return;
         }
         panel.webview.html = messageHtml(undefined, 'Finding a notebook server…', [rel]);
@@ -576,17 +569,16 @@ function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** A node's server as the servers' state shows it now; 'stopped' for the Hub's default server when it is not listed. */
+/** A node's server as the servers' state shows it now. */
 function stateOf(current: ServersStatus, node: string): { state: string; ready: boolean; startError?: string | null } {
-    if (node === HUB_DEFAULT) {
-        const server = current.other_servers.find((s) => s.kind === 'hub-default');
-        return { state: server?.state ?? 'stopped', ready: server?.state === 'running' };
-    }
     const server = current.servers.find((s) => s.node === node);
+    if (!server) {
+        throw new ControlError(`${node} is not a node thinkube-control reports; the nodes are ${current.servers.map((s) => s.node).join(', ')}`);
+    }
     return {
-        state: server?.state ?? 'stopped',
-        ready: server?.state === 'running' && server.extension?.status === 'ok',
-        startError: server?.start_error,
+        state: server.state,
+        ready: server.state === 'running' && server.extension?.status === 'ok',
+        startError: server.start_error,
     };
 }
 
@@ -600,14 +592,18 @@ async function follow(node: string, deadlineMs: number, done: (s: ReturnType<typ
     let reads = 0;
     let last: ReturnType<typeof stateOf> | undefined;
     while (Date.now() < deadline) {
+        let current: ServersStatus | undefined;
         try {
-            last = stateOf(await status(), node);
+            current = await status();
+        } catch (e) {
+            output.appendLine(`reading the servers while following ${node}: ${(e as Error).message}`);
+        }
+        if (current) {
+            last = stateOf(current, node);
             reads += 1;
             if (done(last, reads)) {
                 return last;
             }
-        } catch (e) {
-            output.appendLine(`reading the servers while following ${node}: ${(e as Error).message}`);
         }
         await sleep(FOLLOW_INTERVAL_MS);
     }
@@ -630,9 +626,15 @@ async function startServer(node: string): Promise<boolean> {
         } catch (e) {
             requestError = (e as Error).message;
         }
-        const last = await follow(node, START_DEADLINE_MS, (s, reads) =>
-            s.ready || !!s.startError || (s.state === 'stopped' && (requestError !== undefined ? reads >= 3 : reads >= 10)),
-        );
+        let last: ReturnType<typeof stateOf> | undefined;
+        try {
+            last = await follow(node, START_DEADLINE_MS, (s, reads) =>
+                s.ready || !!s.startError || (s.state === 'stopped' && (requestError !== undefined ? reads >= 3 : reads >= 10)),
+            );
+        } catch (e) {
+            vscode.window.showErrorMessage(`Thinkube Notebooks: ${(e as Error).message}`);
+            return;
+        }
         if (last?.ready) {
             started = true;
             vscode.window.showInformationMessage(`Thinkube Notebooks: the server on ${node} is running.`);
@@ -652,7 +654,7 @@ async function startServer(node: string): Promise<boolean> {
 }
 
 async function stopServer(node: string): Promise<void> {
-    const name = node === HUB_DEFAULT ? 'the Hub default server' : `the notebook server on ${node}`;
+    const name = `the notebook server on ${node}`;
     const confirm = await vscode.window.showWarningMessage(
         `Stop ${name}?`,
         { modal: true, detail: 'Its kernels shut down and its memory and GPUs are freed. Notebook files keep their outputs.' },
@@ -668,7 +670,13 @@ async function stopServer(node: string): Promise<void> {
         } catch (e) {
             requestError = (e as Error).message;
         }
-        const last = await follow(node, STOP_DEADLINE_MS, (s, reads) => s.state === 'stopped' || (requestError !== undefined && s.state === 'running' && reads >= 3));
+        let last: ReturnType<typeof stateOf> | undefined;
+        try {
+            last = await follow(node, STOP_DEADLINE_MS, (s, reads) => s.state === 'stopped' || (requestError !== undefined && s.state === 'running' && reads >= 3));
+        } catch (e) {
+            vscode.window.showErrorMessage(`Thinkube Notebooks: ${(e as Error).message}`);
+            return;
+        }
         if (last?.state !== 'stopped') {
             vscode.window.showErrorMessage(`Thinkube Notebooks: ${name} did not stop${last ? ` (it is ${last.state})` : ''}. ${requestError ?? ''}`.trim());
         }
@@ -909,10 +917,9 @@ function registerSidebar(context: vscode.ExtensionContext): void {
             }
             // A tab on the old path would show a notebook that is no longer there: it moves to the new path on the same server.
             for (const [url, panel] of tabsUnder(entry.rel)) {
-                const node = nodeOfUrl(url) ?? HUB_DEFAULT;
                 const moved = newRel + (notebookPathOfUrl(url) ?? '').slice(entry.rel.length);
                 panel.dispose();
-                openUrl(notebookUrl(serverBase(node, sidebar.snapshot.status), moved));
+                openUrl(withNotebookPath(url, moved));
             }
             notebooks.refresh();
         }),
@@ -942,7 +949,7 @@ function registerSidebar(context: vscode.ExtensionContext): void {
         }),
         vscode.commands.registerCommand('thinkube-notebook-view.startServer', (item: unknown) => {
             const node = serverNodeOf(item);
-            if (node && node !== HUB_DEFAULT) {
+            if (node) {
                 void startServer(node);
             }
         }),

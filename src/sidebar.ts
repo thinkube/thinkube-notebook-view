@@ -3,12 +3,12 @@
 
 /**
  * The Thinkube Notebooks side bar: one row per node with its notebook server,
- * the notebooks open on each running server beneath it, and rows for the
- * Hub's default server and unattended runs while they run.
+ * the notebooks open on each running server beneath it, and rows for
+ * unattended runs while they run.
  */
 
 import * as vscode from 'vscode';
-import { Control, controlConfigured, HUB_DEFAULT, NodeServer, NotebookJob, OtherServer, RunningKernel, ServersStatus } from './control';
+import { Control, controlConfigured, NodeServer, NotebookJob, OtherServer, RunningKernel, ServersStatus } from './control';
 
 /** What the side bar knows after one refresh; undefined fields were not read. */
 export interface Snapshot {
@@ -169,12 +169,11 @@ export class ServersView implements vscode.TreeDataProvider<Node> {
             }
             case 'other': {
                 const s = node.server;
-                const run = s.kind === 'unattended-run';
-                const item = new vscode.TreeItem(run ? node.job?.notebook_path ?? s.server_name : 'Hub default server');
-                item.description = `${run ? 'unattended run' : 'started from the Hub page'} · ${s.state}${s.node ? ` · ${s.node}` : ''}`;
+                const item = new vscode.TreeItem(node.job ? node.job.notebook_path : s.server_name);
+                item.description = `unattended run · ${s.state}${s.node ? ` · ${s.node}` : ''}`;
                 item.tooltip = `Server ${s.server_name}${node.job ? `, run ${node.job.job_id} (${node.job.status})` : ''}`;
-                item.iconPath = new vscode.ThemeIcon(run ? 'run-all' : 'vm');
-                item.contextValue = run ? (node.job ? 'run.active' : 'run') : 'hubDefault';
+                item.iconPath = new vscode.ThemeIcon('run-all');
+                item.contextValue = node.job ? 'run.active' : 'run';
                 return item;
             }
             case 'kernel': {
@@ -192,16 +191,10 @@ export class ServersView implements vscode.TreeDataProvider<Node> {
     }
 }
 
-/** The node a tree item's server stands for: a node name, or 'default' for the Hub's default server. */
+/** The node a tree item's server stands for. */
 export function serverNodeOf(item: unknown): string | undefined {
     const n = item as Node | undefined;
-    if (n?.kind === 'server') {
-        return n.server.node;
-    }
-    if (n?.kind === 'other' && n.server.kind === 'hub-default') {
-        return HUB_DEFAULT;
-    }
-    return undefined;
+    return n?.kind === 'server' ? n.server.node : undefined;
 }
 
 export function kernelOf(item: unknown): { node: string; notebookPath: string } | undefined {

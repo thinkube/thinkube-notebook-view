@@ -10,9 +10,6 @@
 
 import * as vscode from 'vscode';
 
-/** The node name thinkube-control uses for the Hub's default server. */
-export const HUB_DEFAULT = 'default';
-
 export interface RunningKernel {
     kernel_id: string;
     kernel_name: string;
@@ -46,7 +43,7 @@ export interface NodeServer {
 
 export interface OtherServer {
     server_name: string;
-    kind: 'hub-default' | 'unattended-run';
+    kind: 'unattended-run';
     state: string;
     node?: string | null;
     cpu_cores?: number | null;
