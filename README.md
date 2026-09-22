@@ -13,6 +13,18 @@ Shows a notebook from Thinkube Notebooks in a Thinkube IDE editor tab on the not
 - **The clipboard works.** VS Code's Simple Browser withholds clipboard permission from what it frames, so copying out of a framed notebook fails. This tab passes the permission on.
 - **One command opens it.** `tk-notebook-open [--node <node>] <path>` in the IDE terminal opens the tab in the IDE window you used last; Claude Code runs the command `jupyter_use_notebook` returns. Without `--node` the server with the notebook's kernel open is used, else the only server running. Each window's extension listens on its own loopback port and records it, with the time the window was last focused, under `~/.local/share/thinkube-notebook-view/hosts/`.
 
+The extension reads and drives the notebook servers and kernels only through thinkube-control's API (`/api/v1/jupyter/...`), with a thinkube-control API token. It does not call JupyterHub directly.
+
+## How it reaches a user
+
+It is built into every code-server workspace. The code-server playbook of
+[Thinkube](https://github.com/thinkube/thinkube)
+(`ansible/40_thinkube/core/code-server/15_configure_environment.yaml`)
+clones this repository, runs `scripts/deploy.sh --no-bump`, and code-server
+installs the extension. The install also points
+`~/.local/bin/tk-notebook-open` at the installed version. It is not installed
+on its own.
+
 ## Use
 
 From a terminal:
@@ -25,6 +37,40 @@ tk-notebook-open https://notebooks.example.com/user/thinkube/tkamd1/notebooks/th
 From the Command Palette: **Thinkube Notebooks: Open notebook in a tab**, then a path under the notebooks folder or an address.
 
 The tab's title bar has *Reload* and *Open in the browser*. Tabs come back after a window reload.
+
+### The tk-notebook-open command
+
+`bin/tk-notebook-open [--node <node>] <path or address>` takes a notebook path under the notebooks folder, or a notebook address. It reads the window records under `~/.local/share/thinkube-notebook-view/hosts/`, deletes the records of windows whose process has ended, and asks the most recently focused window to open the tab, through `http://127.0.0.1:<port>/open?target=…&node=…`. When a window refuses (no server running, or several to choose from), the command prints that refusal and exits with status 1. When no window is listening, it says so and exits with status 1. Each window also answers `/health` on the same port.
+
+## Commands
+
+All commands are in the category *Thinkube Notebooks*.
+
+| Command | Where it appears |
+|---|---|
+| Open notebook in a tab | Command Palette |
+| Reload notebook tab | Notebook tab title bar |
+| Open notebook in the browser | Notebook tab title bar |
+| Refresh | *Servers* and *Notebooks* view title bars |
+| Start the notebook server | A stopped node in *Servers* |
+| Stop the notebook server | A running node in *Servers* |
+| Open JupyterLab in a tab | A running node in *Servers* |
+| Interrupt kernel | A notebook under a running server in *Servers* |
+| Restart kernel | A notebook under a running server in *Servers* |
+| Save and shut down kernel | A notebook under a running server in *Servers* |
+| Cancel unattended run | An unattended run in *Servers* |
+| Run on server… | A notebook in *Notebooks*, and a notebook under the notebooks folder in the Explorer |
+| New notebook | *Notebooks* view title bar, and each folder |
+| New folder | *Notebooks* view title bar, and each folder |
+| Rename… | An entry in *Notebooks* |
+| Delete | An entry in *Notebooks* |
+
+*Open notebook on a server* and *Open on a notebook server* are used by the views and are hidden from the Command Palette.
+
+## Views and editor
+
+- **View container** *Thinkube Notebooks* in the activity bar, with two views: *Servers* (`thinkubeNotebooks.servers`) and *Notebooks* (`thinkubeNotebooks.notebooks`). While visible, they refresh every 15 seconds.
+- **Custom editor** *Thinkube Notebook (on a notebook server)* (`thinkubeNotebook.editor`), for files matching `**/thinkube-ai/notebooks/**/*.ipynb`. It opens the notebook on a running server and remembers the server chosen for each notebook.
 
 ## Settings
 
@@ -43,15 +89,17 @@ The extension also sets `workbench.editorAssociations` so notebooks under the no
 - The notebook servers must allow being framed by the IDE; Thinkube's JupyterHub sets `frame-ancestors 'self' https://ide.<domain>` on every single-user server.
 - The first time the browser opens a notebook on a server, the server sends it through the Hub and Keycloak to sign in. Thinkube's JupyterHub skips its own sign-in page (`auto_login`), so with a Keycloak session this happens by redirects inside the tab. Keycloak's own sign-in page refuses to be framed: when the Keycloak session has ended, the tab shows "refused to connect"; *Open in the browser* signs in, and *Reload* then shows the notebook.
 
-## Develop
+## Working on it
+
+The source is TypeScript compiled with `tsc` to `dist/`, with no bundler and no frontend framework. `src/extension.ts` holds the tabs, the custom editor, the loopback listener and the commands; `src/control.ts` the calls to thinkube-control; `src/sidebar.ts` the *Servers* view; `src/notebookTree.ts` the *Notebooks* view. [CLAUDE.md](CLAUDE.md) describes each part in more detail.
 
 ```bash
 npm run deploy                 # bump the patch version, build, package, install, commit and push
 npm run deploy -- --no-bump    # install the version in package.json
 ```
 
-`npm run deploy` runs `scripts/deploy.sh`, the same script in every Thinkube extension; versions move only by its patch bump. The platform installs the extension from a clone of this repository with `scripts/deploy.sh --no-bump`, and the install points `~/.local/bin/tk-notebook-open` at the installed version.
+`npm run deploy` runs `scripts/deploy.sh`, the same script in every Thinkube extension; versions move only by its patch bump. The platform installs the extension from a clone of this repository with `scripts/deploy.sh --no-bump`, and the install points `~/.local/bin/tk-notebook-open` at the installed version (`scripts/deploy-hook.sh`). The script needs the Node major version named in `.nvmrc`.
 
 ## License
 
-Apache-2.0.
+Apache License 2.0 - See [LICENSE](LICENSE)
