@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+# Copyright Alejandro Martínez Corriá and the Thinkube contributors
+# SPDX-License-Identifier: Apache-2.0
+
 #
 # Steps only this repository needs, called by scripts/deploy.sh with
 # dependencies, pre-package and post-install.
