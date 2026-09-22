@@ -321,12 +321,12 @@
         "thinkubeNotebookView.controlUrl": {
           "type": "string",
           "default": "",
-          "description": "Address of thinkube-control, for example https://control.example.com. Empty: thinkube-cicd.apiUrl, or built from the platform's domain."
+          "description": "Address of thinkube-control, for example https://control.example.com. Required. Thinkube sets it in code-server."
         },
         "thinkubeNotebookView.apiToken": {
           "type": "string",
           "default": "",
-          "description": "thinkube-control API token (tk_…) the side bar uses to read and start or stop the notebook server. Empty: thinkube-cicd.apiToken."
+          "description": "thinkube-control API token (tk_…) the side bar uses to read and start or stop the notebook server. Required. Thinkube sets it in code-server."
         }
       }
     },

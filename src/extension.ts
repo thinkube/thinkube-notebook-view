@@ -53,39 +53,6 @@ let memory: vscode.Memento;
 // Where notebooks live
 // ---------------------------------------------------------------------------
 
-function readIfThere(file: string): string {
-    try {
-        return fs.readFileSync(file, 'utf8');
-    } catch {
-        return '';
-    }
-}
-
-/**
- * The platform's domain, from the first of: DOMAIN_NAME in the environment or
- * in ~/.env; code-server's own --proxy-domain (ide.<domain>), read from the
- * pod's first process; the Gitea address in the service environment the
- * platform writes for the IDE (git.<domain>).
- */
-function platformDomain(): string | undefined {
-    if (process.env.DOMAIN_NAME) {
-        return process.env.DOMAIN_NAME;
-    }
-    const env = readIfThere(path.join(os.homedir(), '.env')).match(/^\s*(?:export\s+)?DOMAIN_NAME=["']?([^"'\s]+)/m);
-    if (env) {
-        return env[1];
-    }
-    const proxy = readIfThere('/proc/1/cmdline').split('\0').find((a) => a.startsWith('--proxy-domain='));
-    if (proxy) {
-        return proxy.slice('--proxy-domain='.length).replace(/^ide\./, '');
-    }
-    const gitea = readIfThere(path.join(os.homedir(), '.config', 'thinkube', 'service-env-cs.sh')).match(/GITEA_URL=["']?https?:\/\/([^/"'\s]+)/);
-    if (gitea) {
-        return gitea[1].replace(/^[^.]+\./, '');
-    }
-    return undefined;
-}
-
 /** Which page of the notebook server the tab shows: one notebook, or the whole of JupyterLab. */
 function page(): 'notebook' | 'lab' {
     return vscode.workspace.getConfiguration('thinkubeNotebookView').get<string>('page', 'notebook') === 'lab' ? 'lab' : 'notebook';
@@ -827,7 +794,7 @@ function registerSidebar(context: vscode.ExtensionContext): void {
     context.subscriptions.push({ dispose: () => clearInterval(timer) });
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration((e) => {
-            if (e.affectsConfiguration('thinkubeNotebookView') || e.affectsConfiguration('thinkube-cicd')) {
+            if (e.affectsConfiguration('thinkubeNotebookView')) {
                 void sidebar.refresh();
             }
         }),
@@ -1032,7 +999,7 @@ function registerSidebar(context: vscode.ExtensionContext): void {
 export function activate(context: vscode.ExtensionContext): void {
     output = vscode.window.createOutputChannel('Thinkube Notebook View');
     context.subscriptions.push(output);
-    control = new Control(platformDomain);
+    control = new Control();
     memory = context.workspaceState;
 
     context.subscriptions.push(

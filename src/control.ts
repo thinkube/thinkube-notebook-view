@@ -68,38 +68,32 @@ export interface NotebookJob {
 
 export class ControlError extends Error {}
 
-/** Settings of this extension first, then the platform token the CI/CD monitor is configured with. */
-function setting(own: string, shared: string): string {
-    const value = vscode.workspace.getConfiguration('thinkubeNotebookView').get<string>(own, '').trim();
-    if (value) {
-        return value;
-    }
-    return vscode.workspace.getConfiguration('thinkube-cicd').get<string>(shared, '').trim();
+/** A setting of this extension; Thinkube writes both into the IDE's settings. */
+function setting(name: 'controlUrl' | 'apiToken'): string {
+    return vscode.workspace.getConfiguration('thinkubeNotebookView').get<string>(name, '').trim();
 }
 
 export function controlConfigured(): boolean {
-    return setting('apiToken', 'apiToken') !== '';
+    return setting('controlUrl') !== '' && setting('apiToken') !== '';
 }
 
 export class Control {
-    constructor(private readonly domain: () => string | undefined) {}
-
     private baseUrl(): string {
-        const configured = setting('controlUrl', 'apiUrl');
-        if (configured) {
-            return configured.replace(/\/+$/, '');
+        const configured = setting('controlUrl');
+        if (!configured) {
+            throw new ControlError(
+                'thinkubeNotebookView.controlUrl is not set. Thinkube sets it in code-server; set it in Settings to your thinkube-control address.',
+            );
         }
-        const domain = this.domain();
-        if (!domain) {
-            throw new ControlError('thinkubeNotebookView.controlUrl is not set and DOMAIN_NAME is not known');
-        }
-        return `https://control.${domain}`;
+        return configured.replace(/\/+$/, '');
     }
 
     private async call<T>(method: 'GET' | 'POST', route: string, body?: unknown): Promise<T> {
-        const token = setting('apiToken', 'apiToken');
+        const token = setting('apiToken');
         if (!token) {
-            throw new ControlError('No thinkube-control token: set thinkubeNotebookView.apiToken');
+            throw new ControlError(
+                'thinkubeNotebookView.apiToken is not set. Thinkube sets it in code-server; set it in Settings to a thinkube-control API token.',
+            );
         }
         let response: Response;
         try {

@@ -77,8 +77,8 @@ All commands are in the category *Thinkube Notebooks*.
 | Setting | Meaning |
 |---|---|
 | `thinkubeNotebookView.page` | `notebook` (default): the single-document page. `lab`: the whole of JupyterLab. An address given in the other form is rewritten to the chosen page. |
-| `thinkubeNotebookView.controlUrl` | Address of thinkube-control. Empty: `thinkube-cicd.apiUrl`, or `https://control.<DOMAIN_NAME>`. |
-| `thinkubeNotebookView.apiToken` | thinkube-control API token (`tk_…`). Empty: `thinkube-cicd.apiToken`, which the platform writes into the IDE's settings. |
+| `thinkubeNotebookView.controlUrl` | Address of thinkube-control. Required; the platform writes it into the IDE's settings. |
+| `thinkubeNotebookView.apiToken` | thinkube-control API token (`tk_…`). Required; the platform writes it into the IDE's settings. |
 
 The extension also sets `workbench.editorAssociations` so notebooks under the notebooks folder open with it.
 
