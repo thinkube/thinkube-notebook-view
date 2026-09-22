@@ -1,4 +1,4 @@
-// Copyright 2026 Alejandro Martínez Corriá and the Thinkube contributors
+// Copyright Alejandro Martínez Corriá and the Thinkube contributors
 // SPDX-License-Identifier: Apache-2.0
 
 /**
