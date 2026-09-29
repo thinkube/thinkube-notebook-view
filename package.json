@@ -335,7 +335,7 @@
         {
           "id": "thinkubeNotebooks",
           "title": "Thinkube Notebooks",
-          "icon": "media/tk_docs.svg"
+          "icon": "media/notebook-text.svg"
         }
       ]
     },
@@ -344,13 +344,13 @@
         {
           "id": "thinkubeNotebooks.servers",
           "name": "Servers",
-          "icon": "media/tk_docs.svg",
+          "icon": "media/notebook-text.svg",
           "contextualTitle": "Thinkube Notebooks"
         },
         {
           "id": "thinkubeNotebooks.notebooks",
           "name": "Notebooks",
-          "icon": "media/tk_docs.svg",
+          "icon": "media/notebook-text.svg",
           "contextualTitle": "Thinkube Notebooks"
         }
       ]
